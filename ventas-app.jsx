@@ -1,54 +1,104 @@
-// VENTAS — App de Registro de Ventas y Gastos Diarios v2
-// PWA + Google Drive backup
+// VENTAS v3 — Registro individual, filtro gráfica, Excel export
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
-const { useState, useEffect, useCallback, useMemo } = React;
-
-// ─── Reemplaza con tu URL de Google Apps Script desplegada como Web App ────────
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyNgCSqgADH_l6TqMqz2hoAf1QDae8ork4vdWmoOj6nx1j93_H3hUMQJp9_UsMT14gl/exec";
 
 // ─── THEME ────────────────────────────────────────────────────────────────────
 const T = {
-  bg: "#F4F2EF", card: "#FFFFFF", cardAlt: "#F9F8F6",
-  primary: "#1A3353", primaryMid: "#1E4080",
-  accent: "#2563EB", accentLight: "#DBEAFE", accentMid: "#3B82F6",
-  sale: "#1A3353", saleLight: "#E0EAFF",
-  expense: "#991B1B", expenseLight: "#FEE2E2",
-  warning: "#D97706", warningLight: "#FEF3C7",
-  text: "#1C1917", textMid: "#57534E", textLight: "#A8A29E",
-  border: "#E5E3DF", white: "#FFFFFF",
-  pieColors: ["#2563EB","#7C3AED","#DB2777","#D97706","#059669","#0891B2","#DC2626","#65A30D","#EA580C","#0D9488"],
+  bg:"#F4F2EF", card:"#FFFFFF",
+  primary:"#1A3353", primaryMid:"#1E4080",
+  accent:"#2563EB", accentLight:"#DBEAFE",
+  sale:"#1A3353", saleLight:"#E0EAFF",
+  expense:"#991B1B", expenseLight:"#FEE2E2",
+  warning:"#D97706", warningLight:"#FEF3C7",
+  text:"#1C1917", textMid:"#57534E", textLight:"#A8A29E",
+  border:"#E5E3DF", white:"#FFFFFF",
+  pieColors:["#2563EB","#7C3AED","#DB2777","#D97706","#059669","#0891B2","#DC2626","#65A30D","#EA580C","#0D9488"],
 };
 
 // ─── DEFAULTS ─────────────────────────────────────────────────────────────────
-const SUCURSALES_DEFAULT = ["GARAN 1", "GARAN 2", "GARAN 7"];
-const CONCEPTOS_VENTA_DEFAULT = ["DESAYUNO","ALMUERZO","REFRIGERIO MAÑANA","REFRIGERIO TARDE","CENA","EVENTOS"];
-const CONCEPTOS_GASTO_DEFAULT = ["INSUMOS","PERSONAL","SERVICIOS","RENTA","OTROS"];
+const SUCURSALES_DEFAULT = ["GARAN 1","GARAN 2","GARAN 7"];
+const CV_DEFAULT = ["DESAYUNO","ALMUERZO","REFRIGERIO MAÑANA","REFRIGERIO TARDE","CENA","EVENTOS"];
+const CG_DEFAULT = ["TORTILLAS","PAGOS","OTROS"];
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
-const fmt = (n) => `$${Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+const fmt  = (n) => `$${Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const today = () => new Date().toISOString().split("T")[0];
 const getWeekNum = (ds) => { const d=new Date(ds),j=new Date(d.getFullYear(),0,1); return Math.ceil(((d-j)/86400000+j.getDay()+1)/7); };
 const getMonth = (ds) => ds.slice(0,7);
 const DAYS_ES = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
-const LS = { get:(k,def)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):def;}catch{return def;}}, set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}} };
-const totalV = (e) => (e.ventas||[]).reduce((a,b)=>a+Number(b.monto),0);
-const totalG = (e) => (e.gastos||[]).reduce((a,b)=>a+Number(b.monto),0);
+const LS = {
+  get:(k,def)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):def;}catch{return def;}},
+  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
+};
 
-// ─── SEED DATA ────────────────────────────────────────────────────────────────
+// ─── NEW DATA MODEL ───────────────────────────────────────────────────────────
+// Each record is ONE line: { id, fecha, sucursal, tipo:"venta"|"gasto", concepto, monto }
+// Caja is separate: { id, fecha, sucursal, tipo:"caja", monto }
 const genSeedData = () => {
-  const entries=[]; const now=new Date();
+  const records=[]; const now=new Date();
   for(let i=28;i>=1;i--){
     const d=new Date(now); d.setDate(d.getDate()-i);
     const ds=d.toISOString().split("T")[0];
-    SUCURSALES_DEFAULT.forEach((suc)=>{
-      const ventas=[]; CONCEPTOS_VENTA_DEFAULT.forEach((c)=>{ if(Math.random()>0.35) ventas.push({concepto:c,monto:Math.round(80+Math.random()*600)}); });
-      const gastos=[]; CONCEPTOS_GASTO_DEFAULT.forEach((c)=>{ if(Math.random()>0.65) gastos.push({concepto:c,monto:Math.round(20+Math.random()*180)}); });
-      const tv=ventas.reduce((a,b)=>a+b.monto,0), tg=gastos.reduce((a,b)=>a+b.monto,0);
+    SUCURSALES_DEFAULT.forEach(suc=>{
+      CV_DEFAULT.forEach(c=>{ if(Math.random()>0.35) records.push({id:`v-${ds}-${suc}-${c}`,fecha:ds,sucursal:suc,tipo:"venta",concepto:c,monto:Math.round(80+Math.random()*600)}); });
+      CG_DEFAULT.forEach(c=>{ if(Math.random()>0.55) records.push({id:`g-${ds}-${suc}-${c}`,fecha:ds,sucursal:suc,tipo:"gasto",concepto:c,monto:Math.round(20+Math.random()*180)}); });
+      const tv=records.filter(r=>r.fecha===ds&&r.sucursal===suc&&r.tipo==="venta").reduce((a,b)=>a+b.monto,0);
+      const tg=records.filter(r=>r.fecha===ds&&r.sucursal===suc&&r.tipo==="gasto").reduce((a,b)=>a+b.monto,0);
       const caja=(tv-tg)+(Math.random()>0.8?Math.round((Math.random()-0.5)*80):0);
-      entries.push({id:`e-${ds}-${suc}`,fecha:ds,sucursal:suc,ventas,gastos,caja:Math.max(0,Math.round(caja*100)/100)});
+      records.push({id:`c-${ds}-${suc}`,fecha:ds,sucursal:suc,tipo:"caja",concepto:"CAJA",monto:Math.max(0,Math.round(caja*100)/100)});
     });
   }
-  return entries;
+  return records;
+};
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+const filterPeriod = (records, period) => {
+  const now=new Date(), cm=getMonth(today()), cw=getWeekNum(today()), cy=String(now.getFullYear());
+  return records.filter(r=>period==="mes"?getMonth(r.fecha)===cm:(getWeekNum(r.fecha)===cw&&r.fecha.slice(0,4)===cy));
+};
+const sumBy = (records, tipo) => records.filter(r=>r.tipo===tipo).reduce((a,b)=>a+Number(b.monto),0);
+
+// Group flat records into day+sucursal buckets for display
+const groupByDaySuc = (records) => {
+  const map={};
+  records.forEach(r=>{
+    const key=`${r.fecha}__${r.sucursal}`;
+    if(!map[key]) map[key]={fecha:r.fecha,sucursal:r.sucursal,ventas:[],gastos:[],caja:null};
+    if(r.tipo==="venta") map[key].ventas.push(r);
+    else if(r.tipo==="gasto") map[key].gastos.push(r);
+    else if(r.tipo==="caja") map[key].caja=r.monto;
+  });
+  return Object.values(map).sort((a,b)=>b.fecha.localeCompare(a.fecha)||a.sucursal.localeCompare(b.sucursal));
+};
+
+// ─── EXCEL EXPORT ─────────────────────────────────────────────────────────────
+const exportExcel = (records, sucursales) => {
+  // Simple CSV that Excel opens fine, with BOM for Spanish chars
+  const BOM = "\uFEFF";
+  const rows = [["Fecha","Sucursal","Tipo","Concepto","Monto"]];
+  [...records].sort((a,b)=>a.fecha.localeCompare(b.fecha)||a.sucursal.localeCompare(b.sucursal))
+    .forEach(r=>rows.push([r.fecha, r.sucursal, r.tipo.toUpperCase(), r.concepto, r.monto]));
+
+  // Summary sheet rows
+  rows.push([]);
+  rows.push(["=== RESUMEN POR DÍA Y SUCURSAL ==="]);
+  rows.push(["Fecha","Sucursal","Total Ventas","Total Gastos","Neto","Caja","Diferencia"]);
+  const groups = groupByDaySuc(records);
+  groups.forEach(g=>{
+    const tv=g.ventas.reduce((a,b)=>a+b.monto,0);
+    const tg=g.gastos.reduce((a,b)=>a+b.monto,0);
+    const neto=tv-tg;
+    const diff=g.caja!=null?g.caja-neto:null;
+    rows.push([g.fecha,g.sucursal,tv,tg,neto,g.caja??"",(diff!==null?diff:"")]);
+  });
+
+  const csv = BOM + rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+  const blob = new Blob([csv],{type:"text/csv;charset=utf-8;"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `ventas_${today()}.csv`;
+  a.click();
 };
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
@@ -73,30 +123,31 @@ const Icon = ({name,size=22,color="currentColor"}) => {
     chevRight:<svg viewBox="0 0 24 24" style={s} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>,
     dollar:<svg viewBox="0 0 24 24" style={s} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>,
     bar:<svg viewBox="0 0 24 24" style={s} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>,
-    pie:<svg viewBox="0 0 24 24" style={s} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.21 15.89A10 10 0 118 2.83"/><path d="M22 12A10 10 0 0012 2v10z"/></svg>,
+    excel:<svg viewBox="0 0 24 24" style={s} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
+    filter:<svg viewBox="0 0 24 24" style={s} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
   };
   return m[name]||null;
 };
 
-// ─── MINI COMPONENTS ──────────────────────────────────────────────────────────
+// ─── BASE COMPONENTS ──────────────────────────────────────────────────────────
 const Card = ({children,style={}}) => <div style={{background:T.card,borderRadius:16,padding:20,border:`1px solid ${T.border}`,...style}}>{children}</div>;
 const Badge = ({children,color=T.accent,bg=T.accentLight}) => <span style={{fontSize:11,fontWeight:700,color,background:bg,borderRadius:99,padding:"2px 9px",display:"inline-block"}}>{children}</span>;
+const Toast = ({msg,onClose}) => { useEffect(()=>{if(msg){const t=setTimeout(onClose,3000);return()=>clearTimeout(t);}},[msg]); if(!msg)return null; return <div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",background:T.text,color:T.white,borderRadius:12,padding:"12px 22px",fontSize:13,fontWeight:600,zIndex:9999,whiteSpace:"nowrap",boxShadow:"0 8px 24px rgba(0,0,0,.18)"}}>{msg}</div>; };
 
-const StatCard = ({label,value,sub,icon,accent=T.accent,accentBg=T.accentLight}) => (
+const StatCard = ({label,value,icon,accent=T.accent,accentBg=T.accentLight}) => (
   <Card style={{display:"flex",flexDirection:"column",gap:8}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
       <span style={{fontSize:11,fontWeight:700,color:T.textLight,textTransform:"uppercase",letterSpacing:".08em"}}>{label}</span>
       <div style={{width:34,height:34,borderRadius:10,background:accentBg,display:"flex",alignItems:"center",justifyContent:"center",color:accent}}>{icon}</div>
     </div>
     <div style={{fontSize:26,fontWeight:800,color:T.text,letterSpacing:"-0.5px"}}>{value}</div>
-    {sub&&<div style={{fontSize:12,color:T.textMid}}>{sub}</div>}
   </Card>
 );
 
 const PeriodToggle = ({value,onChange}) => (
-  <div style={{display:"flex",gap:8,marginBottom:20}}>
+  <div style={{display:"flex",gap:8,marginBottom:16}}>
     {["semana","mes"].map(p=>(
-      <button key={p} onClick={()=>onChange(p)} style={{flex:1,padding:"10px 0",borderRadius:10,border:`1px solid ${value===p?T.accent:T.border}`,background:value===p?T.accent:T.card,color:value===p?T.white:T.textMid,fontFamily:"inherit",fontWeight:700,fontSize:13,letterSpacing:".04em",textTransform:"uppercase",cursor:"pointer"}}>
+      <button key={p} onClick={()=>onChange(p)} style={{flex:1,padding:"10px 0",borderRadius:10,border:`1px solid ${value===p?T.accent:T.border}`,background:value===p?T.accent:T.card,color:value===p?T.white:T.textMid,fontFamily:"inherit",fontWeight:700,fontSize:13,cursor:"pointer",textTransform:"uppercase",letterSpacing:".04em"}}>
         {p==="semana"?"Esta semana":"Este mes"}
       </button>
     ))}
@@ -106,73 +157,105 @@ const PeriodToggle = ({value,onChange}) => (
 const SucursalPicker = ({value,onChange,sucursales,showAll=false}) => (
   <div style={{marginBottom:16}}>
     <label style={{fontSize:11,fontWeight:700,color:T.textLight,textTransform:"uppercase",letterSpacing:".08em",display:"block",marginBottom:6}}>Sucursal</label>
-    <select value={value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"12px 16px",borderRadius:12,border:`1px solid ${T.border}`,background:T.card,fontFamily:"inherit",fontSize:14,fontWeight:600,color:T.text,appearance:"none",outline:"none",cursor:"pointer"}}>
+    <select value={value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"12px 16px",borderRadius:12,border:`1px solid ${T.border}`,background:T.card,fontFamily:"inherit",fontSize:14,fontWeight:600,color:T.text,WebkitAppearance:"none",outline:"none",cursor:"pointer"}}>
       {showAll&&<option value="__all">Todas las sucursales</option>}
       {sucursales.map(s=><option key={s} value={s}>{s}</option>)}
     </select>
   </div>
 );
 
-const MiniBar = ({data,colorFn}) => {
-  const max=Math.max(...data.map(d=>d.value),1);
+// ─── PIE CHART ────────────────────────────────────────────────────────────────
+const PieChart = ({data,size=120}) => {
+  const total=data.reduce((a,b)=>a+b.value,0); if(!total||!data.length) return null;
+  const cx=size/2,cy=size/2,r=size*0.38; let start=-Math.PI/2;
+  const slices=data.map((d,i)=>{ const a=(d.value/total)*2*Math.PI,x1=cx+r*Math.cos(start),y1=cy+r*Math.sin(start),x2=cx+r*Math.cos(start+a),y2=cy+r*Math.sin(start+a),lg=a>Math.PI?1:0,path=`M${cx} ${cy}L${x1} ${y1}A${r} ${r} 0 ${lg} 1 ${x2} ${y2}Z`; start+=a; return{...d,path,color:T.pieColors[i%T.pieColors.length]}; });
+  return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>{slices.map((s,i)=><path key={i} d={s.path} fill={s.color} stroke={T.white} strokeWidth="1.5"/>)}<circle cx={cx} cy={cy} r={r*0.48} fill={T.white}/></svg>;
+};
+
+const PieSection = ({title,data:pd}) => !pd.length?null:(
+  <Card style={{marginBottom:16}}>
+    <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:14}}>{title}</div>
+    <div style={{display:"flex",alignItems:"center",gap:16}}>
+      <PieChart data={pd} size={110}/>
+      <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
+        {pd.slice(0,7).map((d,i)=>(
+          <div key={d.name} style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:10,height:10,borderRadius:3,background:T.pieColors[i%T.pieColors.length],flexShrink:0}}/>
+            <span style={{fontSize:11,color:T.textMid,flex:1}}>{d.name}</span>
+            <span style={{fontSize:11,fontWeight:700,color:T.text}}>{fmt(d.value)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  </Card>
+);
+
+// ─── BAR CHART (clickable) ────────────────────────────────────────────────────
+const BarChart = ({data, onBarClick, activeBar}) => {
+  const max = Math.max(...data.map(d=>d.value),1);
   return (
-    <div style={{display:"flex",alignItems:"flex-end",gap:4,height:60}}>
-      {data.map((d,i)=>(
-        <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-          <div style={{width:"100%",borderRadius:"4px 4px 0 0",height:Math.max(4,(d.value/max)*52),background:colorFn(d,i),transition:"height .3s"}}/>
-          <span style={{fontSize:9,color:T.textLight,fontWeight:600}}>{d.label}</span>
-        </div>
-      ))}
+    <div style={{display:"flex",alignItems:"flex-end",gap:4,height:72}}>
+      {data.map((d,i)=>{
+        const isActive = activeBar===d.label;
+        return (
+          <div key={i} onClick={()=>onBarClick(isActive?null:d)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,cursor:"pointer"}}>
+            <div style={{
+              width:"100%",borderRadius:"4px 4px 0 0",
+              height:Math.max(4,(d.value/max)*60),
+              background:isActive?T.primaryMid:d.value>0?T.accent:`${T.accent}33`,
+              transition:"all .2s",
+              border:isActive?`2px solid ${T.primary}`:"2px solid transparent",
+              boxSizing:"border-box",
+            }}/>
+            <span style={{fontSize:9,color:isActive?T.primary:T.textLight,fontWeight:isActive?800:600}}>{d.label}</span>
+          </div>
+        );
+      })}
     </div>
   );
 };
 
-const PieChart = ({data,size=130}) => {
-  const total=data.reduce((a,b)=>a+b.value,0); if(!total||!data.length) return null;
-  const cx=size/2,cy=size/2,r=size*0.38; let start=-Math.PI/2;
-  const slices=data.map((d,i)=>{ const a=(d.value/total)*2*Math.PI,x1=cx+r*Math.cos(start),y1=cy+r*Math.sin(start),x2=cx+r*Math.cos(start+a),y2=cy+r*Math.sin(start+a),lg=a>Math.PI?1:0,path=`M${cx} ${cy}L${x1} ${y1}A${r} ${r} 0 ${lg} 1 ${x2} ${y2}Z`; start+=a; return {...d,path,color:T.pieColors[i%T.pieColors.length]}; });
-  return (<svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>{slices.map((s,i)=><path key={i} d={s.path} fill={s.color} stroke={T.white} strokeWidth="1.5"/>)}<circle cx={cx} cy={cy} r={r*0.48} fill={T.white}/></svg>);
-};
-
-const Toast = ({msg,onClose}) => { useEffect(()=>{if(msg){const t=setTimeout(onClose,3000);return()=>clearTimeout(t);}},[msg]); if(!msg) return null; return <div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",background:T.text,color:T.white,borderRadius:12,padding:"12px 22px",fontSize:13,fontWeight:600,zIndex:9999,whiteSpace:"nowrap",boxShadow:"0 8px 24px rgba(0,0,0,.18)"}}>{msg}</div>; };
-
-// ─── COLLAPSIBLE DAY ENTRY CARD ───────────────────────────────────────────────
-const DayEntryCard = ({entry,diff}) => {
-  const [open,setOpen]=useState(false);
-  const tv=totalV(entry),tg=totalG(entry),hasDiff=diff!=null&&Math.abs(diff)>0.01;
+// ─── DAY GROUP CARD (collapsible) ─────────────────────────────────────────────
+const DayGroupCard = ({group}) => {
+  const [open,setOpen] = useState(false);
+  const tv=group.ventas.reduce((a,b)=>a+b.monto,0);
+  const tg=group.gastos.reduce((a,b)=>a+b.monto,0);
+  const neto=tv-tg;
+  const diff=group.caja!=null?group.caja-neto:null;
+  const hasDiff=diff!=null&&Math.abs(diff)>0.01;
   return (
     <div style={{marginBottom:10,border:`1px solid ${hasDiff?T.warning:T.border}`,borderRadius:12,overflow:"hidden",background:hasDiff?"#FFFBF0":T.bg}}>
       <button onClick={()=>setOpen(!open)} style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px",background:"none",border:"none",cursor:"pointer",textAlign:"left"}}>
         <div>
-          <div style={{fontWeight:700,fontSize:13,color:T.text}}>{entry.fecha} <span style={{fontWeight:500,color:T.textLight,fontSize:12}}>— {entry.sucursal||""}</span></div>
-          <div style={{fontSize:11,color:T.textLight,marginTop:2}}>
-            <span style={{color:T.accent,fontWeight:600}}>+{fmt(tv)}</span>{" "}
+          <div style={{fontWeight:700,fontSize:13,color:T.text}}>{group.fecha} <span style={{color:T.textLight,fontWeight:500,fontSize:12}}>— {group.sucursal}</span></div>
+          <div style={{fontSize:11,marginTop:2}}>
+            <span style={{color:T.accent,fontWeight:600}}>+{fmt(tv)}</span>{"  "}
             <span style={{color:T.expense,fontWeight:600}}>−{fmt(tg)}</span>
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           {hasDiff&&<Badge color={T.warning} bg={T.warningLight}>{diff>0?"+":""}{fmt(diff)}</Badge>}
-          {entry.caja==null&&<Badge color={T.textLight} bg={T.border}>Sin caja</Badge>}
+          {group.caja==null&&<Badge color={T.textLight} bg={T.border}>Sin caja</Badge>}
           <Icon name={open?"chevDown":"chevRight"} size={16} color={T.textLight}/>
         </div>
       </button>
       {open&&(
         <div style={{padding:"0 14px 14px",borderTop:`1px solid ${T.border}`}}>
-          {(entry.ventas||[]).length>0&&(
+          {group.ventas.length>0&&(
             <div style={{marginTop:10}}>
               <div style={{fontSize:11,fontWeight:700,color:T.accent,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Ventas</div>
-              {(entry.ventas||[]).map((v,i)=>(
+              {group.ventas.map((v,i)=>(
                 <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"4px 0",borderBottom:`1px solid ${T.border}`}}>
-                  <span style={{color:T.textMid}}>{v.concepto}</span><span style={{fontWeight:600,color:T.text}}>{fmt(v.monto)}</span>
+                  <span style={{color:T.textMid}}>{v.concepto}</span><span style={{fontWeight:600}}>{fmt(v.monto)}</span>
                 </div>
               ))}
               <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",fontWeight:700,color:T.accent}}><span>Total ventas</span><span>{fmt(tv)}</span></div>
             </div>
           )}
-          {(entry.gastos||[]).length>0&&(
+          {group.gastos.length>0&&(
             <div style={{marginTop:6}}>
               <div style={{fontSize:11,fontWeight:700,color:T.expense,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Gastos</div>
-              {(entry.gastos||[]).map((g,i)=>(
+              {group.gastos.map((g,i)=>(
                 <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"4px 0",borderBottom:`1px solid ${T.border}`}}>
                   <span style={{color:T.textMid}}>{g.concepto}</span><span style={{fontWeight:600,color:T.expense}}>{fmt(g.monto)}</span>
                 </div>
@@ -181,8 +264,8 @@ const DayEntryCard = ({entry,diff}) => {
             </div>
           )}
           <div style={{marginTop:8,padding:"10px 12px",background:hasDiff?T.warningLight:T.accentLight,borderRadius:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}><span style={{fontWeight:600,color:T.textMid}}>Esperado en caja</span><span style={{fontWeight:700,color:T.text}}>{fmt(tv-tg)}</span></div>
-            {entry.caja!=null&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginTop:4}}><span style={{fontWeight:600,color:T.textMid}}>Caja reportada</span><span style={{fontWeight:700,color:T.text}}>{fmt(entry.caja)}</span></div>}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}><span style={{color:T.textMid,fontWeight:600}}>Esperado en caja</span><span style={{fontWeight:700}}>{fmt(neto)}</span></div>
+            {group.caja!=null&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginTop:4}}><span style={{color:T.textMid,fontWeight:600}}>Caja reportada</span><span style={{fontWeight:700}}>{fmt(group.caja)}</span></div>}
             {hasDiff&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginTop:4}}><span style={{fontWeight:700,color:T.warning}}>Diferencia</span><span style={{fontWeight:800,color:T.warning}}>{diff>0?"+":""}{fmt(diff)}</span></div>}
           </div>
         </div>
@@ -191,214 +274,166 @@ const DayEntryCard = ({entry,diff}) => {
   );
 };
 
-// ─── BACKUP HOOK (Google Apps Script — sin OAuth, sin Client ID) ───────────────
-const useBackup = (data, setData, toast) => {
-  const [status, setStatus]   = useState("idle"); // idle | syncing | ok | error
-  const [lastSync, setLastSync] = useState(LS.get("ventas_lastSync", null));
-
-  const urlConfigurada = APPS_SCRIPT_URL && !APPS_SCRIPT_URL.includes("TU_URL_AQUI");
-
-  // Guardar en la nube via POST
-  const saveToCloud = useCallback(async () => {
-    if (!urlConfigurada) { toast("Configura la URL del script primero"); return; }
-    setStatus("syncing");
-    try {
-      const payload = {
-        entries:       data.entries,
-        sucursales:    data.sucursales,
-        conceptosVenta: data.conceptosVenta,
-        conceptosGasto: data.conceptosGasto,
-        _savedAt:      new Date().toISOString(),
-      };
-      const res = await fetch(APPS_SCRIPT_URL, {
-        method: "POST",
-        body:   JSON.stringify(payload),
-      });
-      const json = await res.json();
-      if (json.ok) {
-        const now = new Date().toISOString();
-        setLastSync(now); LS.set("ventas_lastSync", now);
-        setStatus("ok");
-        if (json.saved === false) toast(`☁ Sin cambios (${json.reason || "igual"})`);
-        else toast("✓ Respaldo guardado en la nube");
-      } else {
-        throw new Error(json.error || "respuesta inválida");
-      }
-    } catch (err) {
-      setStatus("error");
-      toast("Error al guardar: " + err.message);
-    }
-  }, [data, urlConfigurada]);
-
-  // Restaurar desde la nube via GET
-  const restoreFromCloud = useCallback(async () => {
-    if (!urlConfigurada) { toast("Configura la URL del script primero"); return; }
-    setStatus("syncing");
-    try {
-      const res  = await fetch(APPS_SCRIPT_URL);
-      const json = await res.json();
-      if (json.empty) { toast("No hay respaldo aún"); setStatus("idle"); return; }
-      if (json.entries) {
-        setData(d => ({
-          ...d,
-          entries:       json.entries,
-          sucursales:    json.sucursales    || d.sucursales,
-          conceptosVenta: json.conceptosVenta || d.conceptosVenta,
-          conceptosGasto: json.conceptosGasto || d.conceptosGasto,
-        }));
-        LS.set("ventas_entries",       json.entries);
-        LS.set("ventas_sucursales",    json.sucursales);
-        LS.set("ventas_conceptosVenta", json.conceptosVenta);
-        LS.set("ventas_conceptosGasto", json.conceptosGasto);
-        const now = new Date().toISOString();
-        setLastSync(now); LS.set("ventas_lastSync", now);
-        setStatus("ok");
-        toast("✓ Datos restaurados desde la nube");
-      } else {
-        throw new Error("formato inesperado");
-      }
-    } catch (err) {
-      setStatus("error");
-      toast("Error al restaurar: " + err.message);
-    }
-  }, [urlConfigurada]);
-
-  // Auto-guardar cada 30 minutos si la URL está configurada
-  useEffect(() => {
-    if (!urlConfigurada) return;
-    const id = setInterval(() => saveToCloud(), 30 * 60 * 1000);
-    return () => clearInterval(id);
-  }, [urlConfigurada, saveToCloud]);
-
-  return { status, lastSync, urlConfigurada, saveToCloud, restoreFromCloud };
-};
-
-// ─── FILTER HELPERS ───────────────────────────────────────────────────────────
-const filterPeriod = (entries,period) => {
-  const now=new Date(),cm=getMonth(today()),cw=getWeekNum(today()),cy=String(now.getFullYear());
-  return entries.filter(e=>period==="mes"?getMonth(e.fecha)===cm:(getWeekNum(e.fecha)===cw&&e.fecha.slice(0,4)===cy));
-};
-
-// ─── PIE + LEGEND ─────────────────────────────────────────────────────────────
-const PieSection = ({title,data:pieData}) => (
-  pieData.length>0?(
-    <Card style={{marginBottom:16}}>
-      <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:14}}>{title}</div>
-      <div style={{display:"flex",alignItems:"center",gap:16}}>
-        <PieChart data={pieData} size={110}/>
-        <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
-          {pieData.slice(0,7).map((d,i)=>(
-            <div key={d.name} style={{display:"flex",alignItems:"center",gap:8}}>
-              <div style={{width:10,height:10,borderRadius:3,background:T.pieColors[i%T.pieColors.length],flexShrink:0}}/>
-              <span style={{fontSize:11,color:T.textMid,flex:1,lineHeight:1.3}}>{d.name}</span>
-              <span style={{fontSize:11,fontWeight:700,color:T.text}}>{fmt(d.value)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </Card>
-  ):null
-);
-
 // ─── STATS ROW ────────────────────────────────────────────────────────────────
-const StatsRow = ({sumV,sumG,neto,prom}) => (
-  <>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-      <StatCard label="Ventas" value={fmt(sumV)} icon={<Icon name="trendUp" size={18}/>} accent={T.accent} accentBg={T.accentLight}/>
-      <StatCard label="Gastos" value={fmt(sumG)} icon={<Icon name="trendDown" size={18}/>} accent={T.expense} accentBg={T.expenseLight}/>
-    </div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
-      <StatCard label="Neto" value={fmt(neto)} icon={<Icon name="dollar" size={18}/>} accent={neto>=0?T.accent:T.expense} accentBg={neto>=0?T.accentLight:T.expenseLight}/>
-      <StatCard label="Prom. diario" value={fmt(prom)} icon={<Icon name="bar" size={18}/>} accent={T.primaryMid} accentBg="#EEF2FF"/>
-    </div>
-  </>
-);
+const StatsRow = ({tv,tg}) => {
+  const neto=tv-tg;
+  return (
+    <>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+        <StatCard label="Ventas" value={fmt(tv)} icon={<Icon name="trendUp" size={18}/>} accent={T.accent} accentBg={T.accentLight}/>
+        <StatCard label="Gastos" value={fmt(tg)} icon={<Icon name="trendDown" size={18}/>} accent={T.expense} accentBg={T.expenseLight}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+        <StatCard label="Neto" value={fmt(neto)} icon={<Icon name="dollar" size={18}/>} accent={neto>=0?T.accent:T.expense} accentBg={neto>=0?T.accentLight:T.expenseLight}/>
+        <StatCard label="Prom. diario" value={fmt(tv/7)} icon={<Icon name="bar" size={18}/>} accent={T.primaryMid} accentBg="#EEF2FF"/>
+      </div>
+    </>
+  );
+};
+
+// ─── BACKUP HOOK ──────────────────────────────────────────────────────────────
+const useBackup = (data, setData, toast) => {
+  const [status,setStatus]   = useState("idle");
+  const [lastSync,setLastSync] = useState(LS.get("ventas_lastSync",null));
+  const urlOk = APPS_SCRIPT_URL && !APPS_SCRIPT_URL.includes("TU_URL");
+
+  const saveToCloud = useCallback(async()=>{
+    if(!urlOk){toast("URL del script no configurada");return;}
+    setStatus("syncing");
+    try{
+      const res=await fetch(APPS_SCRIPT_URL,{method:"POST",body:JSON.stringify({records:data.records,sucursales:data.sucursales,conceptosVenta:data.conceptosVenta,conceptosGasto:data.conceptosGasto,_savedAt:new Date().toISOString()})});
+      const j=await res.json();
+      if(j.ok){const now=new Date().toISOString();setLastSync(now);LS.set("ventas_lastSync",now);setStatus("ok");if(j.saved===false)toast(`☁ ${j.reason||"sin cambios"}`);else toast("✓ Respaldo guardado");}
+      else throw new Error(j.error);
+    }catch(e){setStatus("error");toast("Error: "+e.message);}
+  },[data,urlOk]);
+
+  const restoreFromCloud = useCallback(async()=>{
+    if(!urlOk){toast("URL del script no configurada");return;}
+    setStatus("syncing");
+    try{
+      const res=await fetch(APPS_SCRIPT_URL);
+      const j=await res.json();
+      if(j.empty){toast("Sin respaldo aún");setStatus("idle");return;}
+      if(j.records){
+        setData(d=>({...d,records:j.records,sucursales:j.sucursales||d.sucursales,conceptosVenta:j.conceptosVenta||d.conceptosVenta,conceptosGasto:j.conceptosGasto||d.conceptosGasto}));
+        LS.set("ventas_records",j.records);LS.set("ventas_sucursales",j.sucursales);
+        LS.set("ventas_conceptosVenta",j.conceptosVenta);LS.set("ventas_conceptosGasto",j.conceptosGasto);
+        const now=new Date().toISOString();setLastSync(now);LS.set("ventas_lastSync",now);
+        setStatus("ok");toast("✓ Datos restaurados");
+      }
+    }catch(e){setStatus("error");toast("Error: "+e.message);}
+  },[urlOk]);
+
+  useEffect(()=>{if(!urlOk)return;const id=setInterval(()=>saveToCloud(),30*60*1000);return()=>clearInterval(id);},[urlOk,saveToCloud]);
+  return{status,lastSync,urlOk,saveToCloud,restoreFromCloud};
+};
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 const Dashboard = ({data}) => {
-  const [period,setPeriod]=useState("semana");
-  const [sucFilter,setSucFilter]=useState("__all");
-  const now=new Date();
+  const [period,setPeriod] = useState("semana");
+  const [sucFilter,setSucFilter] = useState("__all");
+  const [activeBar,setActiveBar] = useState(null); // {label, value, fecha}
+  const now = new Date();
 
-  const filtered=useMemo(()=>{
-    let base=filterPeriod(data.entries,period);
-    if(sucFilter!=="__all") base=base.filter(e=>e.sucursal===sucFilter);
-    return base;
-  },[data.entries,period,sucFilter]);
+  const base = useMemo(()=>{
+    let r=filterPeriod(data.records,period);
+    if(sucFilter!=="__all") r=r.filter(x=>x.sucursal===sucFilter);
+    return r;
+  },[data.records,period,sucFilter]);
 
-  const sumV=filtered.reduce((a,e)=>a+totalV(e),0);
-  const sumG=filtered.reduce((a,e)=>a+totalG(e),0);
-  const neto=sumV-sumG;
-  const days=period==="semana"?7:new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
-  const prom=sumV/Math.max(days,1);
+  // If a bar is active, filter down to that day
+  const displayed = useMemo(()=>{
+    if(!activeBar) return base;
+    return base.filter(r=>r.fecha===activeBar.fecha);
+  },[base,activeBar]);
 
-  const chartData=useMemo(()=>{
+  const tv=sumBy(displayed,"venta"), tg=sumBy(displayed,"gasto");
+
+  const chartData = useMemo(()=>{
     if(period==="semana"){
       return Array.from({length:7},(_,i)=>{
-        const d=new Date(now); d.setDate(d.getDate()-(6-i));
+        const d=new Date(now);d.setDate(d.getDate()-(6-i));
         const ds=d.toISOString().split("T")[0];
-        let base=data.entries.filter(e=>e.fecha===ds);
-        if(sucFilter!=="__all") base=base.filter(e=>e.sucursal===sucFilter);
-        return{label:DAYS_ES[d.getDay()],value:base.reduce((a,e)=>a+totalV(e),0)};
+        let r=data.records.filter(x=>x.fecha===ds&&x.tipo==="venta");
+        if(sucFilter!=="__all") r=r.filter(x=>x.sucursal===sucFilter);
+        return{label:DAYS_ES[d.getDay()],value:r.reduce((a,b)=>a+b.monto,0),fecha:ds};
       });
     }
     const bw={};
-    filtered.forEach(e=>{const w=getWeekNum(e.fecha);bw[w]=(bw[w]||0)+totalV(e);});
-    return Object.entries(bw).sort().map(([w,v])=>({label:`S${w}`,value:v})).slice(-6);
-  },[filtered,period,sucFilter,data.entries]);
+    base.filter(r=>r.tipo==="venta").forEach(r=>{const w=getWeekNum(r.fecha);bw[w]=(bw[w]||0)+r.monto;});
+    return Object.entries(bw).sort().map(([w,v])=>({label:`S${w}`,value:v,fecha:w})).slice(-8);
+  },[base,period,sucFilter,data.records]);
 
   const byConcepto=useMemo(()=>{
     const m={};
-    filtered.forEach(e=>(e.ventas||[]).forEach(v=>{m[v.concepto]=(m[v.concepto]||0)+Number(v.monto);}));
+    displayed.filter(r=>r.tipo==="venta").forEach(r=>{m[r.concepto]=(m[r.concepto]||0)+r.monto;});
     return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}));
-  },[filtered]);
+  },[displayed]);
 
   const byBranch=useMemo(()=>{
     const m={};
-    filtered.forEach(e=>{m[e.sucursal]=(m[e.sucursal]||0)+totalV(e);});
+    displayed.filter(r=>r.tipo==="venta").forEach(r=>{m[r.sucursal]=(m[r.sucursal]||0)+r.monto;});
     return Object.entries(m).sort((a,b)=>b[1]-a[1]);
-  },[filtered]);
+  },[displayed]);
+
+  // Groups for filtered day detail
+  const groups = useMemo(()=>groupByDaySuc(displayed),[displayed]);
 
   return (
     <div style={{paddingBottom:12}}>
-      <PeriodToggle value={period} onChange={setPeriod}/>
-      <SucursalPicker value={sucFilter} onChange={setSucFilter} sucursales={data.sucursales} showAll/>
-      <StatsRow sumV={sumV} sumG={sumG} neto={neto} prom={prom}/>
+      <PeriodToggle value={period} onChange={p=>{setPeriod(p);setActiveBar(null);}}/>
+      <SucursalPicker value={sucFilter} onChange={v=>{setSucFilter(v);setActiveBar(null);}} sucursales={data.sucursales} showAll/>
+      <StatsRow tv={tv} tg={tg}/>
 
+      {/* Bar chart */}
       <Card style={{marginBottom:16}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <span style={{fontWeight:700,fontSize:14,color:T.text}}>Tendencia de ventas</span>
-          <Badge color={T.accent} bg={T.accentLight}>Ventas</Badge>
+          {activeBar&&(
+            <button onClick={()=>setActiveBar(null)} style={{fontSize:11,color:T.accent,background:T.accentLight,border:"none",borderRadius:8,padding:"4px 10px",fontWeight:700,cursor:"pointer"}}>✕ Limpiar filtro</button>
+          )}
         </div>
-        <MiniBar data={chartData} colorFn={(_,i)=>i===chartData.length-1?T.accent:`${T.accent}66`}/>
+        {activeBar&&<div style={{fontSize:12,color:T.primaryMid,marginBottom:8,fontWeight:600}}>📅 Mostrando: {activeBar.fecha||activeBar.label}</div>}
+        <BarChart data={chartData} onBarClick={setActiveBar} activeBar={activeBar?.label}/>
+        <div style={{fontSize:11,color:T.textLight,marginTop:8,textAlign:"center"}}>Toca una barra para filtrar ese día</div>
       </Card>
 
-      <PieSection title="Ventas por concepto" data={byConcepto}/>
+      <PieSection title={activeBar?"Conceptos del día filtrado":"Ventas por concepto"} data={byConcepto}/>
 
-      <Card>
+      {/* Branch ranking */}
+      <Card style={{marginBottom:16}}>
         <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:14}}>Ranking por sucursal</div>
-        {byBranch.length===0&&<div style={{color:T.textLight,fontSize:13,textAlign:"center",padding:"12px 0"}}>Sin datos</div>}
+        {byBranch.length===0&&<div style={{color:T.textLight,fontSize:13,textAlign:"center",padding:"8px 0"}}>Sin datos</div>}
         {byBranch.map(([suc,val],i)=>{
-          const pct=sumV>0?(val/sumV)*100:0;
-          return (
+          const pct=tv>0?(val/tv)*100:0;
+          return(
             <div key={suc} style={{marginBottom:i<byBranch.length-1?14:0}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   <div style={{width:28,height:28,borderRadius:8,background:i===0?T.accent:T.border,color:i===0?T.white:T.textMid,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:12}}>{i+1}</div>
-                  <span style={{fontWeight:600,fontSize:13,color:T.text}}>{suc}</span>
+                  <span style={{fontWeight:600,fontSize:13}}>{suc}</span>
                 </div>
                 <div style={{textAlign:"right"}}>
-                  <div style={{fontWeight:700,fontSize:13,color:T.text}}>{fmt(val)}</div>
+                  <div style={{fontWeight:700,fontSize:13}}>{fmt(val)}</div>
                   <div style={{fontSize:11,color:T.textLight}}>{pct.toFixed(1)}%</div>
                 </div>
               </div>
               <div style={{height:4,background:T.border,borderRadius:2,overflow:"hidden"}}>
-                <div style={{height:"100%",width:`${pct}%`,background:i===0?T.accent:`${T.accent}66`,borderRadius:2,transition:"width .5s"}}/>
+                <div style={{height:"100%",width:`${pct}%`,background:i===0?T.accent:`${T.accent}66`,borderRadius:2}}/>
               </div>
             </div>
           );
         })}
       </Card>
+
+      {/* Day detail when bar active */}
+      {activeBar&&groups.length>0&&(
+        <Card>
+          <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:12}}>Detalle del día</div>
+          {groups.map((g,i)=><DayGroupCard key={i} group={g}/>)}
+        </Card>
+      )}
     </div>
   );
 };
@@ -409,39 +444,36 @@ const SucursalDetail = ({data}) => {
   const [period,setPeriod]=useState("mes");
   const now=new Date();
 
-  useEffect(()=>{if(!selected&&data.sucursales.length) setSelected(data.sucursales[0]);},[data.sucursales]);
+  useEffect(()=>{if(!selected&&data.sucursales.length)setSelected(data.sucursales[0]);},[data.sucursales]);
 
-  const filtered=useMemo(()=>filterPeriod(data.entries,period).filter(e=>e.sucursal===selected),[data.entries,selected,period]);
-  const sumV=filtered.reduce((a,e)=>a+totalV(e),0);
-  const sumG=filtered.reduce((a,e)=>a+totalG(e),0);
-  const neto=sumV-sumG,ratio=sumV>0?(sumG/sumV)*100:0;
-  const days=period==="semana"?7:new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
-  const prom=sumV/Math.max(days,1);
+  const base=useMemo(()=>filterPeriod(data.records,period).filter(r=>r.sucursal===selected),[data.records,selected,period]);
+  const tv=sumBy(base,"venta"), tg=sumBy(base,"gasto");
 
   const chartData=useMemo(()=>{
     const m={};
-    filtered.forEach(e=>{m[e.fecha]=(m[e.fecha]||0)+totalV(e);});
-    return Object.entries(m).sort().slice(-7).map(([ds,v])=>({label:DAYS_ES[new Date(ds+"T12:00:00").getDay()],value:v}));
-  },[filtered]);
+    base.filter(r=>r.tipo==="venta").forEach(r=>{m[r.fecha]=(m[r.fecha]||0)+r.monto;});
+    return Object.entries(m).sort().slice(-7).map(([ds,v])=>({label:DAYS_ES[new Date(ds+"T12:00:00").getDay()],value:v,fecha:ds}));
+  },[base]);
 
   const byConcepto=useMemo(()=>{
     const m={};
-    filtered.forEach(e=>(e.ventas||[]).forEach(v=>{m[v.concepto]=(m[v.concepto]||0)+Number(v.monto);}));
+    base.filter(r=>r.tipo==="venta").forEach(r=>{m[r.concepto]=(m[r.concepto]||0)+r.monto;});
     return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}));
-  },[filtered]);
+  },[base]);
 
-  const sorted=useMemo(()=>[...filtered].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[filtered]);
+  const groups=useMemo(()=>groupByDaySuc(base),[base]);
+  const ratio=tv>0?(tg/tv)*100:0;
 
-  return (
+  return(
     <div style={{paddingBottom:12}}>
       <SucursalPicker value={selected} onChange={setSelected} sucursales={data.sucursales}/>
       <PeriodToggle value={period} onChange={setPeriod}/>
-      <StatsRow sumV={sumV} sumG={sumG} neto={neto} prom={prom}/>
+      <StatsRow tv={tv} tg={tg}/>
 
       <Card style={{marginBottom:12}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
           <span style={{fontWeight:700,fontSize:14}}>Neto del período</span>
-          <span style={{fontWeight:800,fontSize:20,color:neto>=0?T.accent:T.expense}}>{fmt(neto)}</span>
+          <span style={{fontWeight:800,fontSize:20,color:tv-tg>=0?T.accent:T.expense}}>{fmt(tv-tg)}</span>
         </div>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:T.textLight,marginBottom:4}}>
           <span>Ratio gastos/ventas</span><span>{ratio.toFixed(1)}%</span>
@@ -454,161 +486,196 @@ const SucursalDetail = ({data}) => {
       {chartData.length>0&&(
         <Card style={{marginBottom:16}}>
           <div style={{fontWeight:700,fontSize:13,color:T.text,marginBottom:12}}>Tendencia de ventas</div>
-          <MiniBar data={chartData} colorFn={()=>T.accent}/>
+          <BarChart data={chartData} onBarClick={()=>{}} activeBar={null}/>
         </Card>
       )}
 
       <PieSection title="Ventas por concepto" data={byConcepto}/>
 
       <Card>
-        <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:12}}>Detalle diario</div>
-        {sorted.length===0&&<div style={{color:T.textLight,fontSize:13,textAlign:"center",padding:"12px 0"}}>Sin registros</div>}
-        {sorted.map(e=>{
-          const diff=e.caja!=null?e.caja-(totalV(e)-totalG(e)):null;
-          return <DayEntryCard key={e.id} entry={e} diff={diff}/>;
-        })}
+        <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:12}}>Detalle diario por sucursal</div>
+        {groups.length===0&&<div style={{color:T.textLight,fontSize:13,textAlign:"center",padding:"12px 0"}}>Sin registros</div>}
+        {groups.map((g,i)=><DayGroupCard key={i} group={g}/>)}
       </Card>
     </div>
   );
 };
 
-// ─── REGISTRO ─────────────────────────────────────────────────────────────────
+// ─── REGISTRO (individual, one field at a time) ───────────────────────────────
 const Registro = ({data,setData,toast}) => {
-  const makeEmpty=()=>({fecha:today(),sucursal:data.sucursales[0]||"",otraSucursal:"",ventas:[{concepto:data.conceptosVenta[0]||"",monto:""}],gastos:[],caja:""});
-  const [form,setForm]=useState(makeEmpty);
-  const [saving,setSaving]=useState(false);
-  const [showAddCV,setShowAddCV]=useState(false);
-  const [showAddCG,setShowAddCG]=useState(false);
+  const iS={width:"100%",padding:"13px 16px",borderRadius:12,border:`1.5px solid ${T.border}`,background:T.card,fontFamily:"inherit",fontSize:15,color:T.text,outline:"none",boxSizing:"border-box"};
+  const lS={fontSize:11,fontWeight:700,color:T.textLight,textTransform:"uppercase",letterSpacing:".08em",display:"block",marginBottom:6};
+
+  // Shared context
+  const [fecha,setFecha]=useState(today());
+  const [sucursal,setSucursal]=useState(data.sucursales[0]||"");
+  const [otraSuc,setOtraSuc]=useState("");
+
+  // Venta form
+  const [vConcepto,setVConcepto]=useState(data.conceptosVenta[0]||"");
+  const [vMonto,setVMonto]=useState("");
   const [newCV,setNewCV]=useState("");
+  const [showAddCV,setShowAddCV]=useState(false);
+
+  // Gasto form
+  const [gConcepto,setGConcepto]=useState(data.conceptosGasto[0]||"");
+  const [gMonto,setGMonto]=useState("");
   const [newCG,setNewCG]=useState("");
+  const [showAddCG,setShowAddCG]=useState(false);
 
-  const iS={width:"100%",padding:"11px 14px",borderRadius:10,border:`1.5px solid ${T.border}`,background:T.card,fontFamily:"inherit",fontSize:14,color:T.text,outline:"none",boxSizing:"border-box"};
-  const lS={fontSize:11,fontWeight:700,color:T.textLight,textTransform:"uppercase",letterSpacing:".08em",display:"block",marginBottom:5};
+  // Caja form
+  const [cajaVal,setCajaVal]=useState("");
 
-  const sf=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const setVI=(i,k,v)=>setForm(f=>{const a=[...f.ventas];a[i]={...a[i],[k]:v};return{...f,ventas:a};});
-  const setGI=(i,k,v)=>setForm(f=>{const a=[...f.gastos];a[i]={...a[i],[k]:v};return{...f,gastos:a};});
-  const addV=()=>setForm(f=>({...f,ventas:[...f.ventas,{concepto:data.conceptosVenta[0]||"",monto:""}]}));
-  const remV=(i)=>setForm(f=>({...f,ventas:f.ventas.filter((_,idx)=>idx!==i)}));
-  const addG=()=>setForm(f=>({...f,gastos:[...f.gastos,{concepto:data.conceptosGasto[0]||"",monto:""}]}));
-  const remG=(i)=>setForm(f=>({...f,gastos:f.gastos.filter((_,idx)=>idx!==i)}));
+  const getSuc=()=>sucursal==="__otra"?otraSuc.trim():sucursal;
 
-  const addConcV=()=>{if(!newCV.trim())return;const a=[...data.conceptosVenta,newCV.trim().toUpperCase()];setData(d=>({...d,conceptosVenta:a}));LS.set("ventas_conceptosVenta",a);setNewCV("");setShowAddCV(false);toast("Concepto añadido");};
-  const addConcG=()=>{if(!newCG.trim())return;const a=[...data.conceptosGasto,newCG.trim().toUpperCase()];setData(d=>({...d,conceptosGasto:a}));LS.set("ventas_conceptosGasto",a);setNewCG("");setShowAddCG(false);toast("Concepto añadido");};
+  const addConceptoV=()=>{if(!newCV.trim())return;const a=[...data.conceptosVenta,newCV.trim().toUpperCase()];setData(d=>({...d,conceptosVenta:a}));LS.set("ventas_conceptosVenta",a);setVConcepto(newCV.trim().toUpperCase());setNewCV("");setShowAddCV(false);toast("Concepto añadido");};
+  const addConceptoG=()=>{if(!newCG.trim())return;const a=[...data.conceptosGasto,newCG.trim().toUpperCase()];setData(d=>({...d,conceptosGasto:a}));LS.set("ventas_conceptosGasto",a);setGConcepto(newCG.trim().toUpperCase());setNewCG("");setShowAddCG(false);toast("Concepto añadido");};
 
-  const handleSave=()=>{
-    const suc=form.sucursal==="__otra"?form.otraSucursal.trim():form.sucursal;
-    if(!suc){toast("Selecciona o escribe una sucursal");return;}
-    if(!form.ventas.length&&!form.gastos.length){toast("Agrega al menos una venta o gasto");return;}
-    if(form.ventas.some(v=>!v.concepto||!v.monto)||form.gastos.some(g=>!g.concepto||!g.monto)){toast("Completa todos los conceptos y montos");return;}
+  const saveVenta=()=>{
+    const suc=getSuc(); if(!suc){toast("Selecciona sucursal");return;} if(!vMonto||isNaN(parseFloat(vMonto))){toast("Ingresa un monto válido");return;}
+    // Check if "otra" sucursal is new
     let ns=data.sucursales;
-    if(form.sucursal==="__otra"&&suc&&!data.sucursales.includes(suc)){ns=[...data.sucursales,suc];setData(d=>({...d,sucursales:ns}));LS.set("ventas_sucursales",ns);}
-    setSaving(true);
-    const entry={id:`${Date.now()}-${Math.random().toString(36).slice(2)}`,fecha:form.fecha,sucursal:suc,ventas:form.ventas.map(v=>({concepto:v.concepto,monto:parseFloat(v.monto)})),gastos:form.gastos.map(g=>({concepto:g.concepto,monto:parseFloat(g.monto)})),caja:form.caja?parseFloat(form.caja):null};
-    const ne=[...data.entries,entry]; setData(d=>({...d,entries:ne,sucursales:ns})); LS.set("ventas_entries",ne);
-    setTimeout(()=>{setSaving(false);setForm(makeEmpty());toast("✓ Entrada guardada");},400);
+    if(sucursal==="__otra"&&suc&&!data.sucursales.includes(suc)){ns=[...data.sucursales,suc];setData(d=>({...d,sucursales:ns}));LS.set("ventas_sucursales",ns);}
+    const r={id:`v-${Date.now()}-${Math.random().toString(36).slice(2)}`,fecha,sucursal:suc,tipo:"venta",concepto:vConcepto,monto:parseFloat(vMonto)};
+    const nr=[...data.records,r];setData(d=>({...d,records:nr,sucursales:ns}));LS.set("ventas_records",nr);
+    setVMonto("");toast("✓ Venta guardada");
   };
 
-  const tvP=form.ventas.reduce((a,v)=>a+(parseFloat(v.monto)||0),0);
-  const tgP=form.gastos.reduce((a,g)=>a+(parseFloat(g.monto)||0),0);
-  const cajaVal=form.caja?parseFloat(form.caja):null;
-  const cajaDiff=cajaVal!=null?cajaVal-(tvP-tgP):null;
+  const saveGasto=()=>{
+    const suc=getSuc(); if(!suc){toast("Selecciona sucursal");return;} if(!gMonto||isNaN(parseFloat(gMonto))){toast("Ingresa un monto válido");return;}
+    let ns=data.sucursales;
+    if(sucursal==="__otra"&&suc&&!data.sucursales.includes(suc)){ns=[...data.sucursales,suc];setData(d=>({...d,sucursales:ns}));LS.set("ventas_sucursales",ns);}
+    const r={id:`g-${Date.now()}-${Math.random().toString(36).slice(2)}`,fecha,sucursal:suc,tipo:"gasto",concepto:gConcepto,monto:parseFloat(gMonto)};
+    const nr=[...data.records,r];setData(d=>({...d,records:nr,sucursales:ns}));LS.set("ventas_records",nr);
+    setGMonto("");toast("✓ Gasto guardado");
+  };
 
-  const ItemRow=({item,conceptos,onC,onM,onRem,color})=>(
-    <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
-      <div style={{flex:2}}>
-        <select value={item.concepto} onChange={e=>{
-          const v=e.target.value;
-          if(v==="__nuevo"){const n=window.prompt("Nombre del nuevo concepto:");if(n){const up=n.trim().toUpperCase();if(color===T.accent){const a=[...data.conceptosVenta,up];setData(d=>({...d,conceptosVenta:a}));LS.set("ventas_conceptosVenta",a);}else{const a=[...data.conceptosGasto,up];setData(d=>({...d,conceptosGasto:a}));LS.set("ventas_conceptosGasto",a);}onC(up);}}else onC(v);
-        }} style={{...iS,padding:"11px 10px"}}>
-          {conceptos.map(c=><option key={c} value={c}>{c}</option>)}
-          <option value="__nuevo">＋ Nuevo concepto...</option>
-        </select>
-      </div>
-      <div style={{flex:1,position:"relative"}}>
-        <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:T.textMid,fontWeight:700,fontSize:13}}>$</span>
-        <input type="number" min="0" step="0.01" value={item.monto} onChange={e=>onM(e.target.value)} placeholder="0.00" style={{...iS,paddingLeft:24}}/>
-      </div>
-      <button onClick={onRem} style={{width:36,height:36,borderRadius:8,border:"none",background:T.expenseLight,color:T.expense,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-        <Icon name="trash" size={14} color={T.expense}/>
-      </button>
-    </div>
-  );
+  const saveCaja=()=>{
+    const suc=getSuc(); if(!suc){toast("Selecciona sucursal");return;} if(!cajaVal||isNaN(parseFloat(cajaVal))){toast("Ingresa un monto válido");return;}
+    // Remove existing caja for same day+suc
+    const filtered=data.records.filter(r=>!(r.fecha===fecha&&r.sucursal===suc&&r.tipo==="caja"));
+    const r={id:`c-${Date.now()}`,fecha,sucursal:suc,tipo:"caja",concepto:"CAJA",monto:parseFloat(cajaVal)};
+    const nr=[...filtered,r];setData(d=>({...d,records:nr}));LS.set("ventas_records",nr);
+    setCajaVal("");toast("✓ Caja guardada");
+  };
 
-  return (
+  // Preview totals for today+suc
+  const suc=getSuc();
+  const todayRecs=data.records.filter(r=>r.fecha===fecha&&r.sucursal===suc);
+  const todayTV=sumBy(todayRecs,"venta"), todayTG=sumBy(todayRecs,"gasto");
+  const todayCaja=todayRecs.find(r=>r.tipo==="caja")?.monto??null;
+  const groups=useMemo(()=>groupByDaySuc(data.records.filter(r=>r.fecha===today())),[data.records]);
+
+  return(
     <div style={{paddingBottom:12}}>
+      {/* Context: fecha + sucursal (shared) */}
       <Card style={{marginBottom:14}}>
-        <div style={{fontWeight:800,fontSize:16,color:T.primary,marginBottom:18}}>Nueva entrada del día</div>
-
-        {/* Sucursal */}
+        <div style={{fontWeight:800,fontSize:15,color:T.primary,marginBottom:16}}>Contexto del registro</div>
         <div style={{marginBottom:14}}>
+          <label style={lS}>Fecha</label>
+          <input type="date" value={fecha} onChange={e=>setFecha(e.target.value)} style={iS}/>
+        </div>
+        <div>
           <label style={lS}>Sucursal</label>
-          <select value={form.sucursal} onChange={e=>sf("sucursal",e.target.value)} style={iS}>
+          <select value={sucursal} onChange={e=>setSucursal(e.target.value)} style={iS}>
             {data.sucursales.map(s=><option key={s} value={s}>{s}</option>)}
             <option value="__otra">OTRA...</option>
           </select>
-          {form.sucursal==="__otra"&&<input value={form.otraSucursal} onChange={e=>sf("otraSucursal",e.target.value)} placeholder="Nombre de la sucursal" style={{...iS,marginTop:8}}/>}
+          {sucursal==="__otra"&&<input value={otraSuc} onChange={e=>setOtraSuc(e.target.value)} placeholder="Nombre de la sucursal" style={{...iS,marginTop:8}}/>}
         </div>
+      </Card>
 
-        {/* Fecha */}
-        <div style={{marginBottom:16}}>
-          <label style={lS}>Fecha</label>
-          <input type="date" value={form.fecha} onChange={e=>sf("fecha",e.target.value)} style={iS}/>
-        </div>
-
-        {/* VENTAS */}
-        <div style={{background:`${T.accentLight}55`,borderRadius:12,padding:"14px 14px 12px",marginBottom:14,border:`1px solid ${T.accentLight}`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <span style={{fontSize:13,fontWeight:800,color:T.accent,textTransform:"uppercase",letterSpacing:".06em"}}>Ventas</span>
-            <button onClick={addV} style={{display:"flex",alignItems:"center",gap:4,padding:"5px 12px",borderRadius:8,border:"none",background:T.accentLight,color:T.accent,fontWeight:700,fontSize:12,cursor:"pointer"}}>
-              <Icon name="plus" size={14} color={T.accent}/> Agregar
-            </button>
-          </div>
-          {form.ventas.map((v,i)=><ItemRow key={i} item={v} conceptos={data.conceptosVenta} color={T.accent} onC={val=>setVI(i,"concepto",val)} onM={val=>setVI(i,"monto",val)} onRem={()=>remV(i)}/>)}
-          <button onClick={()=>setShowAddCV(!showAddCV)} style={{fontSize:12,color:T.accent,background:"none",border:"none",cursor:"pointer",fontWeight:600,padding:"4px 0",marginTop:4}}>＋ Agregar concepto de venta a la lista</button>
-          {showAddCV&&<div style={{display:"flex",gap:8,marginTop:8}}><input value={newCV} onChange={e=>setNewCV(e.target.value)} placeholder="Nuevo concepto" style={{...iS,flex:1}} onKeyDown={e=>e.key==="Enter"&&addConcV()}/><button onClick={addConcV} style={{padding:"0 14px",height:44,borderRadius:10,border:"none",background:T.accent,color:T.white,fontWeight:700,cursor:"pointer"}}>OK</button></div>}
-          {tvP>0&&<div style={{fontSize:13,fontWeight:700,color:T.accent,textAlign:"right",marginTop:8}}>Total ventas: {fmt(tvP)}</div>}
-        </div>
-
-        {/* GASTOS */}
-        <div style={{background:`${T.expenseLight}55`,borderRadius:12,padding:"14px 14px 12px",marginBottom:16,border:`1px solid ${T.expenseLight}`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <span style={{fontSize:13,fontWeight:800,color:T.expense,textTransform:"uppercase",letterSpacing:".06em"}}>Gastos</span>
-            <button onClick={addG} style={{display:"flex",alignItems:"center",gap:4,padding:"5px 12px",borderRadius:8,border:"none",background:T.expenseLight,color:T.expense,fontWeight:700,fontSize:12,cursor:"pointer"}}>
-              <Icon name="plus" size={14} color={T.expense}/> Agregar
-            </button>
-          </div>
-          {form.gastos.length===0&&<div style={{fontSize:12,color:T.textLight,textAlign:"center",padding:"8px 0"}}>Sin gastos — usa "Agregar" si los hay</div>}
-          {form.gastos.map((g,i)=><ItemRow key={i} item={g} conceptos={data.conceptosGasto} color={T.expense} onC={val=>setGI(i,"concepto",val)} onM={val=>setGI(i,"monto",val)} onRem={()=>remG(i)}/>)}
-          <button onClick={()=>setShowAddCG(!showAddCG)} style={{fontSize:12,color:T.expense,background:"none",border:"none",cursor:"pointer",fontWeight:600,padding:"4px 0",marginTop:4}}>＋ Agregar concepto de gasto a la lista</button>
-          {showAddCG&&<div style={{display:"flex",gap:8,marginTop:8}}><input value={newCG} onChange={e=>setNewCG(e.target.value)} placeholder="Nuevo concepto" style={{...iS,flex:1}} onKeyDown={e=>e.key==="Enter"&&addConcG()}/><button onClick={addConcG} style={{padding:"0 14px",height:44,borderRadius:10,border:"none",background:T.expense,color:T.white,fontWeight:700,cursor:"pointer"}}>OK</button></div>}
-          {tgP>0&&<div style={{fontSize:13,fontWeight:700,color:T.expense,textAlign:"right",marginTop:8}}>Total gastos: {fmt(tgP)}</div>}
-        </div>
-
-        {/* CAJA */}
-        <div style={{marginBottom:18}}>
-          <label style={lS}>Efectivo en caja al final del día ($)</label>
-          <div style={{position:"relative"}}>
-            <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:T.textMid,fontWeight:700}}>$</span>
-            <input type="number" min="0" step="0.01" value={form.caja} onChange={e=>sf("caja",e.target.value)} placeholder="0.00" style={{...iS,paddingLeft:26}}/>
-          </div>
-          {cajaVal!=null&&tvP>0&&(
-            <div style={{marginTop:8,padding:"8px 12px",borderRadius:8,background:Math.abs(cajaDiff)<0.01?T.accentLight:T.warningLight}}>
-              <div style={{fontSize:12,color:T.textMid}}>Esperado: <strong>{fmt(tvP-tgP)}</strong> · Caja: <strong>{fmt(cajaVal)}</strong> · <strong style={{color:Math.abs(cajaDiff)<0.01?T.accent:T.warning}}>Diff: {cajaDiff>=0?"+":""}{fmt(cajaDiff)}</strong></div>
+      {/* VENTA */}
+      <Card style={{marginBottom:12,border:`1px solid ${T.accentLight}`}}>
+        <div style={{fontWeight:800,fontSize:13,color:T.accent,textTransform:"uppercase",letterSpacing:".06em",marginBottom:14}}>Registrar Venta</div>
+        <div style={{marginBottom:12}}>
+          <label style={lS}>Concepto</label>
+          <select value={vConcepto} onChange={e=>{if(e.target.value==="__nuevo")setShowAddCV(true);else setVConcepto(e.target.value);}} style={iS}>
+            {data.conceptosVenta.map(c=><option key={c} value={c}>{c}</option>)}
+            <option value="__nuevo">＋ Nuevo concepto...</option>
+          </select>
+          {showAddCV&&(
+            <div style={{display:"flex",gap:8,marginTop:8}}>
+              <input value={newCV} onChange={e=>setNewCV(e.target.value)} placeholder="Nuevo concepto de venta" style={{...iS,flex:1}} onKeyDown={e=>e.key==="Enter"&&addConceptoV()}/>
+              <button onClick={addConceptoV} style={{padding:"0 14px",height:48,borderRadius:10,border:"none",background:T.accent,color:T.white,fontWeight:700,cursor:"pointer"}}>OK</button>
+              <button onClick={()=>setShowAddCV(false)} style={{padding:"0 10px",height:48,borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:T.textMid,cursor:"pointer"}}>✕</button>
             </div>
           )}
         </div>
-
-        <button onClick={handleSave} disabled={saving} style={{width:"100%",padding:"15px 0",borderRadius:14,border:"none",background:saving?`${T.primary}99`:T.primary,color:T.white,fontFamily:"inherit",fontWeight:800,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-          {saving?"Guardando...":<><Icon name="check" size={18} color={T.white}/> Guardar entrada</>}
+        <div style={{marginBottom:14}}>
+          <label style={lS}>Monto ($)</label>
+          <input
+            type="number" inputMode="decimal" min="0" step="0.01"
+            value={vMonto} onChange={e=>setVMonto(e.target.value)}
+            placeholder="0.00"
+            style={iS}
+          />
+        </div>
+        <button onClick={saveVenta} style={{width:"100%",padding:"13px 0",borderRadius:12,border:"none",background:T.accent,color:T.white,fontFamily:"inherit",fontWeight:800,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          <Icon name="plus" size={18} color={T.white}/> Agregar Venta
         </button>
       </Card>
 
+      {/* GASTO */}
+      <Card style={{marginBottom:12,border:`1px solid ${T.expenseLight}`}}>
+        <div style={{fontWeight:800,fontSize:13,color:T.expense,textTransform:"uppercase",letterSpacing:".06em",marginBottom:14}}>Registrar Gasto</div>
+        <div style={{marginBottom:12}}>
+          <label style={lS}>Concepto</label>
+          <select value={gConcepto} onChange={e=>{if(e.target.value==="__nuevo")setShowAddCG(true);else setGConcepto(e.target.value);}} style={iS}>
+            {data.conceptosGasto.map(c=><option key={c} value={c}>{c}</option>)}
+            <option value="__nuevo">＋ Nuevo concepto...</option>
+          </select>
+          {showAddCG&&(
+            <div style={{display:"flex",gap:8,marginTop:8}}>
+              <input value={newCG} onChange={e=>setNewCG(e.target.value)} placeholder="Nuevo concepto de gasto" style={{...iS,flex:1}} onKeyDown={e=>e.key==="Enter"&&addConceptoG()}/>
+              <button onClick={addConceptoG} style={{padding:"0 14px",height:48,borderRadius:10,border:"none",background:T.expense,color:T.white,fontWeight:700,cursor:"pointer"}}>OK</button>
+              <button onClick={()=>setShowAddCG(false)} style={{padding:"0 10px",height:48,borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:T.textMid,cursor:"pointer"}}>✕</button>
+            </div>
+          )}
+        </div>
+        <div style={{marginBottom:14}}>
+          <label style={lS}>Monto ($)</label>
+          <input
+            type="number" inputMode="decimal" min="0" step="0.01"
+            value={gMonto} onChange={e=>setGMonto(e.target.value)}
+            placeholder="0.00"
+            style={iS}
+          />
+        </div>
+        <button onClick={saveGasto} style={{width:"100%",padding:"13px 0",borderRadius:12,border:"none",background:T.expense,color:T.white,fontFamily:"inherit",fontWeight:800,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          <Icon name="plus" size={18} color={T.white}/> Agregar Gasto
+        </button>
+      </Card>
+
+      {/* CAJA */}
+      <Card style={{marginBottom:14,border:`1px solid ${T.warningLight}`}}>
+        <div style={{fontWeight:800,fontSize:13,color:T.warning,textTransform:"uppercase",letterSpacing:".06em",marginBottom:14}}>Monto en Caja</div>
+        {todayTV>0&&(
+          <div style={{marginBottom:12,padding:"8px 12px",background:T.accentLight,borderRadius:8,fontSize:12,color:T.primaryMid}}>
+            Ventas: <strong>{fmt(todayTV)}</strong> · Gastos: <strong>{fmt(todayTG)}</strong> · Esperado: <strong>{fmt(todayTV-todayTG)}</strong>
+            {todayCaja!=null&&<span> · Caja actual: <strong>{fmt(todayCaja)}</strong></span>}
+          </div>
+        )}
+        <div style={{marginBottom:14}}>
+          <label style={lS}>Efectivo en caja al cierre ($)</label>
+          <input
+            type="number" inputMode="decimal" min="0" step="0.01"
+            value={cajaVal} onChange={e=>setCajaVal(e.target.value)}
+            placeholder="0.00"
+            style={iS}
+          />
+        </div>
+        <button onClick={saveCaja} style={{width:"100%",padding:"13px 0",borderRadius:12,border:"none",background:T.warning,color:T.white,fontFamily:"inherit",fontWeight:800,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          <Icon name="check" size={18} color={T.white}/> Guardar Caja
+        </button>
+      </Card>
+
+      {/* Today's entries grouped */}
       <Card>
-        <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:12}}>Entradas de hoy</div>
-        {data.entries.filter(e=>e.fecha===today()).length===0
-          ?<div style={{color:T.textLight,fontSize:13,textAlign:"center",padding:"10px 0"}}>Sin entradas hoy</div>
-          :data.entries.filter(e=>e.fecha===today()).map(e=>{const d=e.caja!=null?e.caja-(totalV(e)-totalG(e)):null;return <DayEntryCard key={e.id} entry={e} diff={d}/>;})
+        <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:12}}>Registros de hoy</div>
+        {groups.length===0
+          ?<div style={{color:T.textLight,fontSize:13,textAlign:"center",padding:"10px 0"}}>Sin registros hoy</div>
+          :groups.map((g,i)=><DayGroupCard key={i} group={g}/>)
         }
       </Card>
     </div>
@@ -620,17 +687,17 @@ const Balance = ({data}) => {
   const [period,setPeriod]=useState("mes");
   const [sucFilter,setSucFilter]=useState("__all");
 
-  const filtered=useMemo(()=>{
-    let base=filterPeriod(data.entries,period);
-    if(sucFilter!=="__all") base=base.filter(e=>e.sucursal===sucFilter);
-    return base;
-  },[data.entries,period,sucFilter]);
+  const base=useMemo(()=>{
+    let r=filterPeriod(data.records,period);
+    if(sucFilter!=="__all") r=r.filter(x=>x.sucursal===sucFilter);
+    return r;
+  },[data.records,period,sucFilter]);
 
-  const faltantes=filtered.filter(e=>e.caja!=null&&Math.abs(e.caja-(totalV(e)-totalG(e)))>0.01);
-  const totalFaltante=faltantes.reduce((a,e)=>a+Math.abs(e.caja-(totalV(e)-totalG(e))),0);
-  const sorted=useMemo(()=>[...filtered].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[filtered]);
+  const groups=useMemo(()=>groupByDaySuc(base),[base]);
+  const faltantes=groups.filter(g=>g.caja!=null&&Math.abs(g.caja-(g.ventas.reduce((a,b)=>a+b.monto,0)-g.gastos.reduce((a,b)=>a+b.monto,0)))>0.01);
+  const totalFaltante=faltantes.reduce((a,g)=>{const neto=g.ventas.reduce((x,b)=>x+b.monto,0)-g.gastos.reduce((x,b)=>x+b.monto,0);return a+Math.abs(g.caja-neto);},0);
 
-  return (
+  return(
     <div style={{paddingBottom:12}}>
       <PeriodToggle value={period} onChange={setPeriod}/>
       <SucursalPicker value={sucFilter} onChange={setSucFilter} sucursales={data.sucursales} showAll/>
@@ -641,115 +708,93 @@ const Balance = ({data}) => {
             <Icon name={faltantes.length>0?"warning":"check"} size={22}/>
           </div>
           <div>
-            <div style={{fontSize:12,fontWeight:600,color:T.textMid}}>{faltantes.length>0?`${faltantes.length} diferencia(s) detectada(s)`:"Sin diferencias en este período"}</div>
+            <div style={{fontSize:12,fontWeight:600,color:T.textMid}}>{faltantes.length>0?`${faltantes.length} diferencia(s) detectada(s)`:"Sin diferencias en caja"}</div>
             {faltantes.length>0&&<div style={{fontSize:22,fontWeight:800,color:T.warning}}>−{fmt(totalFaltante)}</div>}
           </div>
         </div>
       </Card>
 
-      <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:12}}>Detalle por día</div>
-      {sorted.length===0&&<div style={{color:T.textLight,fontSize:13,textAlign:"center",padding:"24px 0"}}>Sin datos para este período</div>}
-      {sorted.map(e=>{const d=e.caja!=null?e.caja-(totalV(e)-totalG(e)):null;return <DayEntryCard key={e.id} entry={e} diff={d}/>;
-      })}
+      <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:12}}>Detalle por día y sucursal</div>
+      {groups.length===0&&<div style={{color:T.textLight,fontSize:13,textAlign:"center",padding:"24px 0"}}>Sin datos para este período</div>}
+      {groups.map((g,i)=><DayGroupCard key={i} group={g}/>)}
     </div>
   );
 };
 
 // ─── BACKUPS ──────────────────────────────────────────────────────────────────
-const Backups = ({backup, data, setData, toast}) => {
-  const {status, lastSync, urlConfigurada, saveToCloud, restoreFromCloud} = backup;
+const Backups = ({backup,data,setData,toast}) => {
+  const {status,lastSync,urlOk,saveToCloud,restoreFromCloud}=backup;
 
-  const handleExport = () => {
-    const b = new Blob([JSON.stringify({entries:data.entries,sucursales:data.sucursales,conceptosVenta:data.conceptosVenta,conceptosGasto:data.conceptosGasto,exportedAt:new Date().toISOString()},null,2)],{type:"application/json"});
-    const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `ventas_backup_${today()}.json`; a.click();
-    toast("✓ Archivo descargado");
+  const handleExportJSON=()=>{
+    const b=new Blob([JSON.stringify({records:data.records,sucursales:data.sucursales,conceptosVenta:data.conceptosVenta,conceptosGasto:data.conceptosGasto,exportedAt:new Date().toISOString()},null,2)],{type:"application/json"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=`ventas_backup_${today()}.json`;a.click();
+    toast("✓ JSON descargado");
   };
-  const handleImport = (e) => {
-    const f = e.target.files?.[0]; if (!f) return;
-    const r = new FileReader();
-    r.onload = (ev) => {
-      try {
-        const p = JSON.parse(ev.target.result);
-        if (p.entries) {
-          setData(d => ({...d, entries:p.entries, sucursales:p.sucursales||d.sucursales, conceptosVenta:p.conceptosVenta||d.conceptosVenta, conceptosGasto:p.conceptosGasto||d.conceptosGasto}));
-          LS.set("ventas_entries", p.entries); LS.set("ventas_sucursales", p.sucursales);
-          LS.set("ventas_conceptosVenta", p.conceptosVenta); LS.set("ventas_conceptosGasto", p.conceptosGasto);
-          toast("✓ Datos importados");
-        }
-      } catch { toast("Error al leer el archivo"); }
+  const handleExportExcel=()=>{ exportExcel(data.records,data.sucursales); toast("✓ Excel descargado"); };
+  const handleImport=(e)=>{
+    const f=e.target.files?.[0];if(!f)return;
+    const r=new FileReader();
+    r.onload=(ev)=>{
+      try{
+        const p=JSON.parse(ev.target.result);
+        // Support both old (entries) and new (records) format
+        const recs=p.records||p.entries||[];
+        setData(d=>({...d,records:recs,sucursales:p.sucursales||d.sucursales,conceptosVenta:p.conceptosVenta||d.conceptosVenta,conceptosGasto:p.conceptosGasto||d.conceptosGasto}));
+        LS.set("ventas_records",recs);LS.set("ventas_sucursales",p.sucursales);
+        LS.set("ventas_conceptosVenta",p.conceptosVenta);LS.set("ventas_conceptosGasto",p.conceptosGasto);
+        toast("✓ Datos importados");
+      }catch{toast("Error al leer archivo");}
     };
     r.readAsText(f);
   };
-  const handleClear = () => {
-    if (window.confirm("¿Eliminar TODOS los registros? Esta acción no se puede deshacer.")) {
-      setData(d => ({...d, entries:[]})); LS.set("ventas_entries", []); toast("Datos eliminados");
-    }
-  };
+  const handleClear=()=>{if(window.confirm("¿Eliminar TODOS los registros?")){{setData(d=>({...d,records:[]}));LS.set("ventas_records",[]);toast("Datos eliminados");}}};
 
-  const sC = {idle:T.textLight, syncing:T.warning, ok:"#16A34A", error:T.expense};
-  const sL = {idle:"Sin sincronizar", syncing:"Guardando...", ok:"Sincronizado", error:"Error"};
+  const sC={idle:T.textLight,syncing:T.warning,ok:"#16A34A",error:T.expense};
+  const sL={idle:"Sin sincronizar",syncing:"Guardando...",ok:"Sincronizado",error:"Error"};
 
-  return (
+  return(
     <div style={{paddingBottom:12}}>
-      {/* Estado nube */}
       <Card style={{marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:40,height:40,borderRadius:12,background:T.accentLight,display:"flex",alignItems:"center",justifyContent:"center",color:T.accent}}>
-              <Icon name="cloud" size={20}/>
-            </div>
-            <div>
-              <div style={{fontWeight:700,fontSize:14,color:T.text}}>Respaldo en la nube</div>
-              <div style={{fontSize:11,color:sC[status],fontWeight:600}}>{sL[status]}</div>
-            </div>
+            <div style={{width:40,height:40,borderRadius:12,background:T.accentLight,display:"flex",alignItems:"center",justifyContent:"center",color:T.accent}}><Icon name="cloud" size={20}/></div>
+            <div><div style={{fontWeight:700,fontSize:14}}>Respaldo en la nube</div><div style={{fontSize:11,color:sC[status],fontWeight:600}}>{sL[status]}</div></div>
           </div>
           <div style={{width:10,height:10,borderRadius:99,background:sC[status]}}/>
         </div>
-        {lastSync && <div style={{fontSize:11,color:T.textLight,marginBottom:14}}>Último respaldo: {new Date(lastSync).toLocaleString("es-SV")}</div>}
-
-        {!urlConfigurada ? (
-          <div style={{padding:"12px 14px",borderRadius:10,background:T.warningLight,border:`1px solid ${T.warning}`,fontSize:12,color:T.warning,fontWeight:600,lineHeight:1.6}}>
-            ⚠ URL del script no configurada.<br/>
-            <span style={{fontWeight:400,color:T.textMid}}>Edita el archivo <code>ventas-app.jsx</code> y reemplaza <code>TU_URL_AQUI</code> con la URL de tu Google Apps Script.</span>
+        {lastSync&&<div style={{fontSize:11,color:T.textLight,marginBottom:12}}>Último: {new Date(lastSync).toLocaleString("es-SV")}</div>}
+        {!urlOk
+          ?<div style={{padding:"12px 14px",borderRadius:10,background:T.warningLight,fontSize:12,color:T.warning,fontWeight:600}}>⚠ URL del script no configurada</div>
+          :<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <button onClick={saveToCloud} style={{padding:"12px 0",borderRadius:12,border:"none",background:T.accent,color:T.white,fontFamily:"inherit",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon name="cloudUp" size={16} color={T.white}/> Guardar</button>
+            <button onClick={restoreFromCloud} style={{padding:"12px 0",borderRadius:12,border:`1.5px solid ${T.border}`,background:T.card,color:T.primaryMid,fontFamily:"inherit",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon name="cloudDown" size={16}/> Restaurar</button>
           </div>
-        ) : (
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <button onClick={saveToCloud} style={{padding:"12px 0",borderRadius:12,border:"none",background:T.accent,color:T.white,fontFamily:"inherit",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-              <Icon name="cloudUp" size={16} color={T.white}/> Guardar
-            </button>
-            <button onClick={restoreFromCloud} style={{padding:"12px 0",borderRadius:12,border:`1.5px solid ${T.border}`,background:T.card,color:T.primaryMid,fontFamily:"inherit",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-              <Icon name="cloudDown" size={16}/> Restaurar
-            </button>
-          </div>
-        )}
+        }
       </Card>
 
-      {/* Info */}
       <Card style={{marginBottom:14,background:"#EFF6FF",borderColor:T.accentLight}}>
-        <div style={{fontSize:12,color:T.primaryMid,lineHeight:1.7}}>
-          <strong>Respaldo automático</strong> cada 30 min cuando hay conexión.<br/>
-          Los datos se guardan en Google Drive de forma segura.<br/>
-          Para dudas sobre recuperación de datos, contacta al administrador de la aplicación.
-        </div>
+        <div style={{fontSize:12,color:T.primaryMid,lineHeight:1.7}}><strong>Respaldo automático</strong> cada 30 min con conexión.<br/>Para dudas contacta al administrador de la aplicación.</div>
       </Card>
 
-      {/* Manual */}
       <Card style={{marginBottom:14}}>
-        <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:12}}>Respaldo manual (archivo)</div>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:12}}>Descargar datos</div>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <button onClick={handleExport} style={{padding:"12px 16px",borderRadius:12,border:`1.5px solid ${T.border}`,background:T.card,color:T.text,fontFamily:"inherit",fontWeight:600,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={handleExportExcel} style={{padding:"12px 16px",borderRadius:12,border:`1.5px solid ${T.border}`,background:"#F0FDF4",color:"#16A34A",fontFamily:"inherit",fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:10}}>
+            <Icon name="excel" size={18} color="#16A34A"/>
+            <div><div style={{fontWeight:700}}>Descargar Excel / CSV</div><div style={{fontSize:11,color:T.textLight}}>{data.records.filter(r=>r.tipo!=="caja").length} movimientos</div></div>
+          </button>
+          <button onClick={handleExportJSON} style={{padding:"12px 16px",borderRadius:12,border:`1.5px solid ${T.border}`,background:T.card,color:T.text,fontFamily:"inherit",fontWeight:600,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:10}}>
             <Icon name="cloudDown" size={18} color={T.primaryMid}/>
-            <div><div style={{fontWeight:700}}>Descargar respaldo (JSON)</div><div style={{fontSize:11,color:T.textLight}}>{data.entries.length} registros guardados</div></div>
+            <div><div style={{fontWeight:700}}>Descargar respaldo (JSON)</div><div style={{fontSize:11,color:T.textLight}}>{data.records.length} registros</div></div>
           </button>
           <label style={{padding:"12px 16px",borderRadius:12,border:`1.5px solid ${T.border}`,background:T.card,cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
             <Icon name="cloudUp" size={18} color={T.primaryMid}/>
-            <div><div style={{fontWeight:700,fontSize:13,color:T.text}}>Importar respaldo</div><div style={{fontSize:11,color:T.textLight}}>Seleccionar archivo JSON</div></div>
+            <div><div style={{fontWeight:700,fontSize:13}}>Importar respaldo JSON</div><div style={{fontSize:11,color:T.textLight}}>Seleccionar archivo</div></div>
             <input type="file" accept=".json" onChange={handleImport} style={{display:"none"}}/>
           </label>
         </div>
       </Card>
 
-      {/* Peligro */}
       <Card style={{borderColor:T.expenseLight}}>
         <div style={{fontWeight:700,fontSize:14,color:T.expense,marginBottom:12}}>Zona peligrosa</div>
         <button onClick={handleClear} style={{padding:"12px 16px",borderRadius:12,border:`1.5px solid ${T.expense}`,background:T.expenseLight,color:T.expense,fontFamily:"inherit",fontWeight:700,fontSize:13,cursor:"pointer",width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
@@ -761,36 +806,31 @@ const Backups = ({backup, data, setData, toast}) => {
 };
 
 // ─── TABS ─────────────────────────────────────────────────────────────────────
-// Pestañas visibles en el bottom nav (sin Respaldo)
 const TABS=[
   {id:"dashboard",label:"Inicio",icon:"dashboard",title:"Panel general"},
   {id:"sucursal",label:"Sucursal",icon:"store",title:"Por sucursal"},
   {id:"registro",label:"Registrar",icon:"plus",title:"Nueva entrada"},
   {id:"balance",label:"Balance",icon:"wallet",title:"Balances y faltantes"},
 ];
-// Todas las secciones incluyendo Respaldo (solo menú lateral)
-const ALL_SECTIONS=[
-  ...TABS,
-  {id:"respaldo",label:"Respaldo",icon:"cloud",title:"Respaldo"},
-];
+const ALL_SECTIONS=[...TABS,{id:"respaldo",label:"Respaldo",icon:"cloud",title:"Respaldo"}];
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
-export default function App() {
+function App() {
   const [tab,setTab]=useState("dashboard");
   const [sidebar,setSidebar]=useState(false);
   const [toast,setToast]=useState("");
   const showToast=(m)=>setToast(m);
 
   const [data,setData]=useState(()=>({
-    entries: LS.get("ventas_entries",null)??genSeedData(),
+    records:   LS.get("ventas_records",null)??genSeedData(),
     sucursales: LS.get("ventas_sucursales",null)??SUCURSALES_DEFAULT,
-    conceptosVenta: LS.get("ventas_conceptosVenta",null)??CONCEPTOS_VENTA_DEFAULT,
-    conceptosGasto: LS.get("ventas_conceptosGasto",null)??CONCEPTOS_GASTO_DEFAULT,
+    conceptosVenta: LS.get("ventas_conceptosVenta",null)??CV_DEFAULT,
+    conceptosGasto: LS.get("ventas_conceptosGasto",null)??CG_DEFAULT,
   }));
 
-  useEffect(()=>{LS.set("ventas_entries",data.entries);},[data.entries]);
+  useEffect(()=>{LS.set("ventas_records",data.records);},[data.records]);
 
-  const backup = useBackup(data, setData, showToast);
+  const backup=useBackup(data,setData,showToast);
   const title=ALL_SECTIONS.find(t=>t.id===tab)?.title||"";
 
   const views={
@@ -801,15 +841,15 @@ export default function App() {
     respaldo:<Backups backup={backup} data={data} setData={setData} toast={showToast}/>,
   };
 
-  return (
+  return(
     <div style={{fontFamily:"'DM Sans','Segoe UI',sans-serif",background:T.bg,minHeight:"100dvh",maxWidth:480,margin:"0 auto",position:"relative"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap');*{box-sizing:border-box}input:focus,select:focus{border-color:${T.accent}!important;outline:none}input[type=date]::-webkit-calendar-picker-indicator{opacity:.5}select{-webkit-appearance:none}`}</style>
 
       <header style={{position:"sticky",top:0,zIndex:100,background:`${T.bg}EE`,backdropFilter:"blur(12px)",padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${T.border}`}}>
         <button onClick={()=>setSidebar(true)} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.text}}><Icon name="menu" size={22}/></button>
         <div style={{fontWeight:900,fontSize:20,color:T.primary,letterSpacing:"-0.5px"}}>Ventas</div>
-        <div style={{width:34,height:34,borderRadius:10,background:T.primary,display:"flex",alignItems:"center",justifyContent:"center",color:T.white,fontSize:11,fontWeight:800}}>
-          {backup.status==="syncing" ? "↻" : backup.status==="ok" ? "✓" : <Icon name="cloud" size={16} color={T.white}/>}
+        <div style={{width:34,height:34,borderRadius:10,background:T.primary,display:"flex",alignItems:"center",justifyContent:"center",color:T.white,fontSize:13,fontWeight:800}}>
+          {backup.status==="syncing"?"↻":backup.status==="ok"?"✓":<Icon name="cloud" size={16} color={T.white}/>}
         </div>
       </header>
 
@@ -822,7 +862,7 @@ export default function App() {
       <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:`${T.card}F8`,backdropFilter:"blur(16px)",borderTop:`1px solid ${T.border}`,display:"flex",padding:"10px 8px 20px",gap:4,zIndex:50}}>
         {TABS.map(t=>{
           const active=tab===t.id;
-          return (
+          return(
             <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:active?T.primary:"none",border:"none",cursor:"pointer",padding:"8px 4px",borderRadius:12}}>
               <div style={{color:active?T.white:T.textLight}}>
                 {t.id==="registro"
@@ -845,11 +885,11 @@ export default function App() {
                 <div style={{fontSize:26,fontWeight:900,color:T.white,letterSpacing:"-0.5px"}}>Ventas</div>
                 <button onClick={()=>setSidebar(false)} style={{background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,.6)",padding:4}}><Icon name="close" size={22}/></button>
               </div>
-              <div style={{fontSize:12,color:"rgba(255,255,255,.4)",marginTop:4}}>{data.entries.length} registros · {data.sucursales.length} sucursales</div>
+              <div style={{fontSize:12,color:"rgba(255,255,255,.4)",marginTop:4}}>{data.records.length} registros · {data.sucursales.length} sucursales</div>
             </div>
             {ALL_SECTIONS.map(t=>{
               const active=tab===t.id;
-              return (
+              return(
                 <button key={t.id} onClick={()=>{setTab(t.id);setSidebar(false);}} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 24px",background:active?"rgba(255,255,255,.12)":"none",border:"none",cursor:"pointer",borderLeft:`3px solid ${active?T.accent:"transparent"}`,color:active?T.white:"rgba(255,255,255,.6)"}}>
                   <Icon name={t.icon} size={20} color={active?T.white:"rgba(255,255,255,.6)"}/>
                   <span style={{fontWeight:700,fontSize:14}}>{t.title}</span>
@@ -858,8 +898,8 @@ export default function App() {
             })}
             <div style={{marginTop:"auto",padding:"16px 24px",borderTop:"1px solid rgba(255,255,255,.1)"}}>
               <div style={{fontSize:11,color:"rgba(255,255,255,.35)",fontWeight:600}}>
-                {backup.urlConfigurada ? (backup.status==="ok" ? "☁ Nube activa" : "☁ Nube configurada") : "⚪ Nube no configurada"}<br/>
-                {backup.lastSync ? `Último: ${new Date(backup.lastSync).toLocaleDateString("es-SV")}` : "Sin respaldo aún"}
+                {backup.urlOk?(backup.status==="ok"?"☁ Nube activa":"☁ Nube configurada"):"⚪ Nube no configurada"}<br/>
+                {backup.lastSync?`Último: ${new Date(backup.lastSync).toLocaleDateString("es-SV")}`:"Sin respaldo aún"}
               </div>
             </div>
           </aside>
@@ -871,5 +911,4 @@ export default function App() {
   );
 }
 
-// Exponer App globalmente para que index.html pueda montarla
 window.App = App;
