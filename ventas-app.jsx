@@ -1,5 +1,5 @@
 // VENTAS — App de Registro de Ventas y Gastos Diarios v2
-// PWA + Google Drive backup — Versión con Registro Individual
+// PWA + Google Drive backup
 
 const { useState, useEffect, useCallback, useMemo } = React;
 
@@ -472,7 +472,7 @@ const SucursalDetail = ({data}) => {
   );
 };
 
-// ─── REGISTRO (LÓGICA INDIVIDUALIZADA) ────────────────────────────────────────
+// ─── REGISTRO ─────────────────────────────────────────────────────────────────
 const Registro = ({data,setData,toast}) => {
   const makeEmpty=()=>({
     fecha:today(),
@@ -512,6 +512,7 @@ const Registro = ({data,setData,toast}) => {
     let ns=data.sucursales;
     if(form.sucursal==="__otra"&&suc&&!data.sucursales.includes(suc)){
       ns=[...data.sucursales,suc];
+      setData(d=>({...d,sucursales:ns}));
       LS.set("ventas_sucursales",ns);
     }
 
@@ -520,8 +521,7 @@ const Registro = ({data,setData,toast}) => {
 
     setTimeout(()=>{
       setSaving(false);
-      // Solo limpiamos monto y caja, dejamos fecha y sucursal para agilidad
-      setForm(f=>({...f, monto:"", caja:""}));
+      setForm(f=>({...f, monto:"", caja:""})); // Solo limpiamos monto y caja para agilidad
       toast("✓ Guardado correctamente");
     },400);
   };
@@ -771,7 +771,7 @@ const ALL_SECTIONS=[
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [tab,setTab]=useState("dashboard");
-  const [sidebar,setSidebar]=useState(false);
+  const [sidebar,setSidebar]=sidebarState = useState(false);
   const [toast,setToast]=useState("");
   const showToast=(m)=>setToast(m);
 
