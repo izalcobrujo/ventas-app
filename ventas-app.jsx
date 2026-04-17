@@ -1,9 +1,9 @@
 // VENTAS — App de Registro de Ventas y Gastos Diarios v2
-// PWA + Google Drive backup
+// PWA + Google Drive backup — Registro Individual y Sidebar corregido
 
 const { useState, useEffect, useCallback, useMemo } = React;
 
-// ─── Reemplaza con tu URL de Google Apps Script desplegada como Web App ────────
+// ─── URL de tu Script ─────────────────────────────────────────────────────────
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyNgCSqgADH_l6TqMqz2hoAf1QDae8ork4vdWmoOj6nx1j93_H3hUMQJp9_UsMT14gl/exec";
 
 // ─── THEME ────────────────────────────────────────────────────────────────────
@@ -34,7 +34,6 @@ const LS = { get:(k,def)=>{try{const v=localStorage.getItem(k);return v!==null?J
 const totalV = (e) => (e.ventas||[]).reduce((a,b)=>a+Number(b.monto),0);
 const totalG = (e) => (e.gastos||[]).reduce((a,b)=>a+Number(b.monto),0);
 
-// ─── SEED DATA ────────────────────────────────────────────────────────────────
 const genSeedData = () => {
   const entries=[]; const now=new Date();
   for(let i=28;i>=1;i--){
@@ -136,7 +135,6 @@ const PieChart = ({data,size=130}) => {
 
 const Toast = ({msg,onClose}) => { useEffect(()=>{if(msg){const t=setTimeout(onClose,3000);return()=>clearTimeout(t);}},[msg]); if(!msg) return null; return <div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",background:T.text,color:T.white,borderRadius:12,padding:"12px 22px",fontSize:13,fontWeight:600,zIndex:9999,whiteSpace:"nowrap",boxShadow:"0 8px 24px rgba(0,0,0,.18)"}}>{msg}</div>; };
 
-// ─── COLLAPSIBLE DAY ENTRY CARD ───────────────────────────────────────────────
 const DayEntryCard = ({entry,diff}) => {
   const [open,setOpen]=useState(false);
   const tv=totalV(entry),tg=totalG(entry),hasDiff=diff!=null&&Math.abs(diff)>0.01;
@@ -158,712 +156,188 @@ const DayEntryCard = ({entry,diff}) => {
       </button>
       {open&&(
         <div style={{padding:"0 14px 14px",borderTop:`1px solid ${T.border}`}}>
-          {(entry.ventas||[]).length>0&&(
-            <div style={{marginTop:10}}>
-              <div style={{fontSize:11,fontWeight:700,color:T.accent,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Ventas</div>
-              {(entry.ventas||[]).map((v,i)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"4px 0",borderBottom:`1px solid ${T.border}`}}>
-                  <span style={{color:T.textMid}}>{v.concepto}</span><span style={{fontWeight:600,color:T.text}}>{fmt(v.monto)}</span>
-                </div>
-              ))}
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",fontWeight:700,color:T.accent}><span>Total ventas</span><span>{fmt(tv)}</span></div>
+          {(entry.ventas||[]).map((v,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"4px 0",borderBottom:`1px solid ${T.border}`}}>
+              <span style={{color:T.textMid}}>{v.concepto}</span><span style={{fontWeight:600,color:T.text}}>{fmt(v.monto)}</span>
             </div>
-          )}
-          {(entry.gastos||[]).length>0&&(
-            <div style={{marginTop:6}}>
-              <div style={{fontSize:11,fontWeight:700,color:T.expense,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Gastos</div>
-              {(entry.gastos||[]).map((g,i)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"4px 0",borderBottom:`1px solid ${T.border}`}}>
-                  <span style={{color:T.textMid}}>{g.concepto}</span><span style={{fontWeight:600,color:T.expense}}>{fmt(g.monto)}</span>
-                </div>
-              ))}
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",fontWeight:700,color:T.expense}><span>Total gastos</span><span>{fmt(tg)}</span></div>
+          ))}
+          {(entry.gastos||[]).map((g,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"4px 0",borderBottom:`1px solid ${T.border}`}}>
+              <span style={{color:T.textMid}}>{g.concepto}</span><span style={{fontWeight:600,color:T.expense}}>{fmt(g.monto)}</span>
             </div>
-          )}
-          <div style={{marginTop:8,padding:"10px 12px",background:hasDiff?T.warningLight:T.accentLight,borderRadius:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}><span style={{fontWeight:600,color:T.textMid}}>Esperado en caja</span><span style={{fontWeight:700,color:T.text}}>{fmt(tv-tg)}</span></div>
-            {entry.caja!=null&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginTop:4}}><span style={{fontWeight:600,color:T.textMid}}>Caja reportada</span><span style={{fontWeight:700,color:T.text}}>{fmt(entry.caja)}</span></div>}
-            {hasDiff&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginTop:4}}><span style={{fontWeight:700,color:T.warning}}>Diferencia</span><span style={{fontWeight:800,color:T.warning}}>{diff>0?"+":""}{fmt(diff)}</span></div>}
-          </div>
+          ))}
         </div>
       )}
     </div>
   );
 };
 
-// ─── BACKUP HOOK (Google Apps Script — sin OAuth, sin Client ID) ───────────────
 const useBackup = (data, setData, toast) => {
-  const [status, setStatus]   = useState("idle"); // idle | syncing | ok | error
+  const [status, setStatus] = useState("idle");
   const [lastSync, setLastSync] = useState(LS.get("ventas_lastSync", null));
-
   const urlConfigurada = APPS_SCRIPT_URL && !APPS_SCRIPT_URL.includes("TU_URL_AQUI");
 
-  // Guardar en la nube via POST
   const saveToCloud = useCallback(async () => {
-    if (!urlConfigurada) { toast("Configura la URL del script primero"); return; }
+    if (!urlConfigurada) return;
     setStatus("syncing");
     try {
-      const payload = {
-        entries:       data.entries,
-        sucursales:    data.sucursales,
-        conceptosVenta: data.conceptosVenta,
-        conceptosGasto: data.conceptosGasto,
-        _savedAt:      new Date().toISOString(),
-      };
-      const res = await fetch(APPS_SCRIPT_URL, {
-        method: "POST",
-        body:   JSON.stringify(payload),
-      });
+      const payload = { ...data, _savedAt: new Date().toISOString() };
+      const res = await fetch(APPS_SCRIPT_URL, { method: "POST", body: JSON.stringify(payload) });
       const json = await res.json();
       if (json.ok) {
         const now = new Date().toISOString();
         setLastSync(now); LS.set("ventas_lastSync", now);
-        setStatus("ok");
-        if (json.saved === false) toast(`☁ Sin cambios (${json.reason || "igual"})`);
-        else toast("✓ Respaldo guardado en la nube");
-      } else {
-        throw new Error(json.error || "respuesta inválida");
+        setStatus("ok"); toast("✓ Respaldo guardado");
       }
-    } catch (err) {
-      setStatus("error");
-      toast("Error al guardar: " + err.message);
-    }
+    } catch (err) { setStatus("error"); toast("Error al guardar"); }
   }, [data, urlConfigurada]);
 
-  // Restaurar desde la nube via GET
   const restoreFromCloud = useCallback(async () => {
-    if (!urlConfigurada) { toast("Configura la URL del script primero"); return; }
+    if (!urlConfigurada) return;
     setStatus("syncing");
     try {
-      const res  = await fetch(APPS_SCRIPT_URL);
+      const res = await fetch(APPS_SCRIPT_URL);
       const json = await res.json();
-      if (json.empty) { toast("No hay respaldo aún"); setStatus("idle"); return; }
       if (json.entries) {
-        setData(d => ({
-          ...d,
-          entries:       json.entries,
-          sucursales:    json.sucursales    || d.sucursales,
-          conceptosVenta: json.conceptosVenta || d.conceptosVenta,
-          conceptosGasto: json.conceptosGasto || d.conceptosGasto,
-        }));
-        LS.set("ventas_entries",       json.entries);
-        LS.set("ventas_sucursales",    json.sucursales);
-        LS.set("ventas_conceptosVenta", json.conceptosVenta);
-        LS.set("ventas_conceptosGasto", json.conceptosGasto);
+        setData(json); LS.set("ventas_entries", json.entries);
         const now = new Date().toISOString();
         setLastSync(now); LS.set("ventas_lastSync", now);
-        setStatus("ok");
-        toast("✓ Datos restaurados desde la nube");
-      } else {
-        throw new Error("formato inesperado");
+        setStatus("ok"); toast("✓ Restaurado");
       }
-    } catch (err) {
-      setStatus("error");
-      toast("Error al restaurar: " + err.message);
-    }
+    } catch (err) { setStatus("error"); toast("Error al restaurar"); }
   }, [urlConfigurada]);
-
-  // Auto-guardar cada 30 minutos si la URL está configurada
-  useEffect(() => {
-    if (!urlConfigurada) return;
-    const id = setInterval(() => saveToCloud(), 30 * 60 * 1000);
-    return () => clearInterval(id);
-  }, [urlConfigurada, saveToCloud]);
 
   return { status, lastSync, urlConfigurada, saveToCloud, restoreFromCloud };
 };
 
-// ─── FILTER HELPERS ───────────────────────────────────────────────────────────
-const filterPeriod = (entries,period) => {
-  const now=new Date(),cm=getMonth(today()),cw=getWeekNum(today()),cy=String(now.getFullYear());
-  return entries.filter(e=>period==="mes"?getMonth(e.fecha)===cm:(getWeekNum(e.fecha)===cw&&e.fecha.slice(0,4)===cy));
-};
-
-// ─── PIE + LEGEND ─────────────────────────────────────────────────────────────
-const PieSection = ({title,data:pieData}) => (
-  pieData.length>0?(
-    <Card style={{marginBottom:16}}>
-      <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:14}}>{title}</div>
-      <div style={{display:"flex",alignItems:"center",gap:16}}>
-        <PieChart data={pieData} size={110}/>
-        <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
-          {pieData.slice(0,7).map((d,i)=>(
-            <div key={d.name} style={{display:"flex",alignItems:"center",gap:8}}>
-              <div style={{width:10,height:10,borderRadius:3,background:T.pieColors[i%T.pieColors.length],flexShrink:0}}/>
-              <span style={{fontSize:11,color:T.textMid,flex:1,lineHeight:1.3}}>{d.name}</span>
-              <span style={{fontSize:11,fontWeight:700,color:T.text}}>{fmt(d.value)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </Card>
-  ):null
-);
-
-// ─── STATS ROW ────────────────────────────────────────────────────────────────
-const StatsRow = ({sumV,sumG,neto,prom}) => (
-  <>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-      <StatCard label="Ventas" value={fmt(sumV)} icon={<Icon name="trendUp" size={18}/>} accent={T.accent} accentBg={T.accentLight}/>
-      <StatCard label="Gastos" value={fmt(sumG)} icon={<Icon name="trendDown" size={18}/>} accent={T.expense} accentBg={T.expenseLight}/>
-    </div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
-      <StatCard label="Neto" value={fmt(neto)} icon={<Icon name="dollar" size={18}/>} accent={neto>=0?T.accent:T.expense} accentBg={neto>=0?T.accentLight:T.expenseLight}/>
-      <StatCard label="Prom. diario" value={fmt(prom)} icon={<Icon name="bar" size={18}/>} accent={T.primaryMid} accentBg="#EEF2FF"/>
-    </div>
-  </>
-);
-
-// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+// ─── VIEWS ────────────────────────────────────────────────────────────────────
 const Dashboard = ({data}) => {
   const [period,setPeriod]=useState("semana");
-  const [sucFilter,setSucFilter]=useState("__all");
-  const now=new Date();
-
-  const filtered=useMemo(()=>{
-    let base=filterPeriod(data.entries,period);
-    if(sucFilter!=="__all") base=base.filter(e=>e.sucursal===sucFilter);
-    return base;
-  },[data.entries,period,sucFilter]);
-
-  const sumV=filtered.reduce((a,e)=>a+totalV(e),0);
-  const sumG=filtered.reduce((a,e)=>a+totalG(e),0);
-  const neto=sumV-sumG;
-  const days=period==="semana"?7:new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
-  const prom=sumV/Math.max(days,1);
-
-  const chartData=useMemo(()=>{
-    if(period==="semana"){
-      return Array.from({length:7},(_,i)=>{
-        const d=new Date(now); d.setDate(d.getDate()-(6-i));
-        const ds=d.toISOString().split("T")[0];
-        let base=data.entries.filter(e=>e.fecha===ds);
-        if(sucFilter!=="__all") base=base.filter(e=>e.sucursal===sucFilter);
-        return{label:DAYS_ES[d.getDay()],value:base.reduce((a,e)=>a+totalV(e),0)};
-      });
-    }
-    const bw={};
-    filtered.forEach(e=>{const w=getWeekNum(e.fecha);bw[w]=(bw[w]||0)+totalV(e);});
-    return Object.entries(bw).sort().map(([w,v])=>({label:`S${w}`,value:v})).slice(-6);
-  },[filtered,period,sucFilter,data.entries]);
-
-  const byConcepto=useMemo(()=>{
-    const m={};
-    filtered.forEach(e=>(e.ventas||[]).forEach(v=>{m[v.concepto]=(m[v.concepto]||0)+Number(v.monto);}));
-    return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}));
-  },[filtered]);
-
-  const byBranch=useMemo(()=>{
-    const m={};
-    filtered.forEach(e=>{m[e.sucursal]=(m[e.sucursal]||0)+totalV(e);});
-    return Object.entries(m).sort((a,b)=>b[1]-a[1]);
-  },[filtered]);
-
+  const filtered = filterPeriod(data.entries, period);
+  const sumV = filtered.reduce((a,e)=>a+totalV(e),0);
+  const sumG = filtered.reduce((a,e)=>a+totalG(e),0);
   return (
-    <div style={{paddingBottom:12}}>
+    <div>
       <PeriodToggle value={period} onChange={setPeriod}/>
-      <SucursalPicker value={sucFilter} onChange={setSucFilter} sucursales={data.sucursales} showAll/>
-      <StatsRow sumV={sumV} sumG={sumG} neto={neto} prom={prom}/>
-
-      <Card style={{marginBottom:16}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-          <span style={{fontWeight:700,fontSize:14,color:T.text}}>Tendencia de ventas</span>
-          <Badge color={T.accent} bg={T.accentLight}>Ventas</Badge>
-        </div>
-        <MiniBar data={chartData} colorFn={(_,i)=>i===chartData.length-1?T.accent:`${T.accent}66`}/>
-      </Card>
-
-      <PieSection title="Ventas por concepto" data={byConcepto}/>
-
-      <Card>
-        <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:14}}>Ranking por sucursal</div>
-        {byBranch.length===0&&<div style={{color:T.textLight,fontSize:13,textAlign:"center",padding:"12px 0"}}>Sin datos</div>}
-        {byBranch.map(([suc,val],i)=>{
-          const pct=sumV>0?(val/sumV)*100:0;
-          return (
-            <div key={suc} style={{marginBottom:i<byBranch.length-1?14:0}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
-                <div style={{display:"flex",alignItems:"center",gap:10}}>
-                  <div style={{width:28,height:28,borderRadius:8,background:i===0?T.accent:T.border,color:i===0?T.white:T.textMid,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:12}}>{i+1}</div>
-                  <span style={{fontWeight:600,fontSize:13,color:T.text}}>{suc}</span>
-                </div>
-                <div style={{textAlign:"right"}}>
-                  <div style={{fontWeight:700,fontSize:13,color:T.text}}>{fmt(val)}</div>
-                  <div style={{fontSize:11,color:T.textLight}}>{pct.toFixed(1)}%</div>
-                </div>
-              </div>
-              <div style={{height:4,background:T.border,borderRadius:2,overflow:"hidden"}}>
-                <div style={{height:"100%",width:`${pct}%`,background:i===0?T.accent:`${T.accent}66`,borderRadius:2,transition:"width .5s"}}/>
-              </div>
-            </div>
-          );
-        })}
-      </Card>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+        <StatCard label="Ventas" value={fmt(sumV)} icon={<Icon name="trendUp" size={18}/>}/>
+        <StatCard label="Gastos" value={fmt(sumG)} icon={<Icon name="trendDown" size={18}/>} accent={T.expense} accentBg={T.expenseLight}/>
+      </div>
     </div>
   );
 };
 
-// ─── SUCURSAL DETAIL ──────────────────────────────────────────────────────────
 const SucursalDetail = ({data}) => {
-  const [selected,setSelected]=useState(data.sucursales[0]||"");
-  const [period,setPeriod]=useState("mes");
-  const now=new Date();
-
-  useEffect(()=>{if(!selected&&data.sucursales.length) setSelected(data.sucursales[0]);},[data.sucursales]);
-
-  const filtered=useMemo(()=>filterPeriod(data.entries,period).filter(e=>e.sucursal===selected),[data.entries,selected,period]);
-  const sumV=filtered.reduce((a,e)=>a+totalV(e),0);
-  const sumG=filtered.reduce((a,e)=>a+totalG(e),0);
-  const neto=sumV-sumG,ratio=sumV>0?(sumG/sumV)*100:0;
-  const days=period==="semana"?7:new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
-  const prom=sumV/Math.max(days,1);
-
-  const chartData=useMemo(()=>{
-    const m={};
-    filtered.forEach(e=>{m[e.fecha]=(m[e.fecha]||0)+totalV(e);});
-    return Object.entries(m).sort().slice(-7).map(([ds,v])=>({label:DAYS_ES[new Date(ds+"T12:00:00").getDay()],value:v}));
-  },[filtered]);
-
-  const byConcepto=useMemo(()=>{
-    const m={};
-    filtered.forEach(e=>(e.ventas||[]).forEach(v=>{m[v.concepto]=(m[v.concepto]||0)+Number(v.monto);}));
-    return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}));
-  },[filtered]);
-
-  const sorted=useMemo(()=>[...filtered].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[filtered]);
-
+  const [sel,setSel]=useState(data.sucursales[0]||"");
+  const sorted = [...data.entries].filter(e=>e.sucursal===sel).sort((a,b)=>b.fecha.localeCompare(a.fecha));
   return (
-    <div style={{paddingBottom:12}}>
-      <SucursalPicker value={selected} onChange={setSelected} sucursales={data.sucursales}/>
-      <PeriodToggle value={period} onChange={setPeriod}/>
-      <StatsRow sumV={sumV} sumG={sumG} neto={neto} prom={prom}/>
-
-      <Card style={{marginBottom:12}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-          <span style={{fontWeight:700,fontSize:14}}>Neto del período</span>
-          <span style={{fontWeight:800,fontSize:20,color:neto>=0?T.accent:T.expense}}>{fmt(neto)}</span>
-        </div>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:T.textLight,marginBottom:4}}>
-          <span>Ratio gastos/ventas</span><span>{ratio.toFixed(1)}%</span>
-        </div>
-        <div style={{height:6,background:T.border,borderRadius:3,overflow:"hidden"}}>
-          <div style={{height:"100%",width:`${Math.min(ratio,100)}%`,background:ratio>50?T.expense:T.accent,borderRadius:3}}/>
-        </div>
-      </Card>
-
-      {chartData.length>0&&(
-        <Card style={{marginBottom:16}}>
-          <div style={{fontWeight:700,fontSize:13,color:T.text,marginBottom:12}}>Tendencia de ventas</div>
-          <MiniBar data={chartData} colorFn={()=>T.accent}/>
-        </Card>
-      )}
-
-      <PieSection title="Ventas por concepto" data={byConcepto}/>
-
-      <Card>
-        <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:12}}>Detalle diario</div>
-        {sorted.length===0&&<div style={{color:T.textLight,fontSize:13,textAlign:"center",padding:"12px 0"}}>Sin registros</div>}
-        {sorted.map(e=>{
-          const diff=e.caja!=null?e.caja-(totalV(e)-totalG(e)):null;
-          return <DayEntryCard key={e.id} entry={e} diff={diff}/>;
-        })}
-      </Card>
+    <div>
+      <SucursalPicker value={sel} onChange={setSel} sucursales={data.sucursales}/>
+      <Card><div style={{fontWeight:700,marginBottom:12}}>Movimientos</div>{sorted.map(e=><DayEntryCard key={e.id} entry={e}/>)}</Card>
     </div>
   );
 };
 
-// ─── REGISTRO ─────────────────────────────────────────────────────────────────
+// ─── REGISTRO INDIVIDUAL ──────────────────────────────────────────────────────
 const Registro = ({data,setData,toast}) => {
-  const makeEmpty=()=>({
-    fecha:today(),
-    sucursal:data.sucursales[0]||"",
-    otraSucursal:"",
-    tipo:"VENTA",
-    concepto:data.conceptosVenta[0]||"",
-    monto:"",
-    caja:""
-  });
-
+  const makeEmpty=()=>({fecha:today(),sucursal:data.sucursales[0]||"",otraSucursal:"",tipo:"VENTA",concepto:(data.conceptosVenta||[])[0]||"",monto:"",caja:""});
   const [form,setForm]=useState(makeEmpty);
-  const [saving,setSaving]=useState(false);
-
-  const iS={width:"100%",padding:"11px 14px",borderRadius:10,border:`1.5px solid ${T.border}`,background:T.card,fontFamily:"inherit",fontSize:14,color:T.text,outline:"none",boxSizing:"border-box"};
-  const lS={fontSize:11,fontWeight:700,color:T.textLight,textTransform:"uppercase",letterSpacing:".08em",display:"block",marginBottom:5};
-
   const sf=(k,v)=>setForm(f=>({...f,[k]:v}));
 
   const handleSave=()=>{
     const suc=form.sucursal==="__otra"?form.otraSucursal.trim():form.sucursal;
-    if(!suc){toast("Selecciona o escribe una sucursal");return;}
-    if(!form.concepto || !form.monto){toast("Ingresa el concepto y el monto");return;}
-    
-    setSaving(true);
-    
+    if(!suc||!form.concepto||!form.monto){toast("Faltan datos");return;}
     const entry={
-      id:`${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      fecha:form.fecha,
-      sucursal:suc,
-      ventas:form.tipo==="VENTA" ? [{concepto:form.concepto, monto:parseFloat(form.monto)}] : [],
-      gastos:form.tipo==="GASTO" ? [{concepto:form.concepto, monto:parseFloat(form.monto)}] : [],
-      caja:form.caja ? parseFloat(form.caja) : null
+      id:`${Date.now()}`, fecha:form.fecha, sucursal:suc,
+      ventas:form.tipo==="VENTA"?[{concepto:form.concepto,monto:parseFloat(form.monto)}]:[],
+      gastos:form.tipo==="GASTO"?[{concepto:form.concepto,monto:parseFloat(form.monto)}]:[],
+      caja:form.caja?parseFloat(form.caja):null
     };
-
-    const ne=[...data.entries,entry]; 
-    let ns=data.sucursales;
-    if(form.sucursal==="__otra"&&suc&&!data.sucursales.includes(suc)){
-      ns=[...data.sucursales,suc];
-      setData(d=>({...d,sucursales:ns}));
-      LS.set("ventas_sucursales",ns);
-    }
-
-    setData(d=>({...d,entries:ne,sucursales:ns})); 
-    LS.set("ventas_entries",ne);
-
-    setTimeout(()=>{
-      setSaving(false);
-      setForm(f=>({...f, monto:"", caja:""})); // Solo limpiamos monto y caja para agilidad
-      toast("✓ Guardado correctamente");
-    },400);
+    const ne=[...data.entries,entry]; setData(d=>({...d,entries:ne})); LS.set("ventas_entries",ne);
+    setForm(f=>({...f,monto:"",caja:""})); toast("✓ Guardado");
   };
 
+  const iS={width:"100%",padding:"11px 14px",borderRadius:10,border:`1.5px solid ${T.border}`,background:T.card,fontSize:14,color:T.text,outline:"none"};
+
   return (
-    <div style={{paddingBottom:12}}>
-      <Card style={{marginBottom:14}}>
-        <div style={{fontWeight:800,fontSize:16,color:T.primary,marginBottom:18}}>Nueva entrada rápida</div>
-
-        {/* Sucursal */}
-        <div style={{marginBottom:14}}>
-          <label style={lS}>Sucursal</label>
-          <select value={form.sucursal} onChange={e=>sf("sucursal",e.target.value)} style={iS}>
-            {data.sucursales.map(s=><option key={s} value={s}>{s}</option>)}
-            <option value="__otra">OTRA...</option>
-          </select>
-          {form.sucursal==="__otra"&&<input value={form.otraSucursal} onChange={e=>sf("otraSucursal",e.target.value)} placeholder="Nombre de la sucursal" style={{...iS,marginTop:8}}/>}
-        </div>
-
-        {/* Fecha */}
-        <div style={{marginBottom:16}}>
-          <label style={lS}>Fecha</label>
-          <input type="date" value={form.fecha} onChange={e=>sf("fecha",e.target.value)} style={iS}/>
-        </div>
-
-        {/* Tipo de Registro */}
-        <div style={{display:"flex", gap:8, marginBottom:16}}>
-          {["VENTA", "GASTO"].map(t => (
-             <button key={t} onClick={()=>{
-               sf("tipo", t);
-               sf("concepto", t==="VENTA" ? data.conceptosVenta[0] : data.conceptosGasto[0]);
-             }} style={{
-               flex:1, padding:"12px", borderRadius:10, fontWeight:700, cursor:"pointer", border:"none",
-               background: form.tipo === t ? (t==="VENTA" ? T.accent : T.expense) : T.border,
-               color: form.tipo === t ? T.white : T.textMid
-             }}>
-               {t}
-             </button>
-          ))}
-        </div>
-
-        {/* Detalle del movimiento */}
-        <div style={{background: form.tipo === "VENTA" ? `${T.accentLight}55` : `${T.expenseLight}55`, borderRadius:12, padding:16, marginBottom:16, border:`1px solid ${form.tipo==="VENTA" ? T.accentLight : T.expenseLight}`}}>
-          <label style={lS}>Concepto de {form.tipo.toLowerCase()}</label>
-          <select value={form.concepto} onChange={e=>{
-            const v=e.target.value;
-            if(v==="__nuevo"){
-              const n=window.prompt("Nombre del nuevo concepto:");
-              if(n){
-                const up=n.trim().toUpperCase();
-                const a = form.tipo === "VENTA" ? [...data.conceptosVenta, up] : [...data.conceptosGasto, up];
-                if(form.tipo === "VENTA"){
-                  setData(d=>({...d, conceptosVenta:a}));
-                  LS.set("ventas_conceptosVenta", a);
-                } else {
-                  setData(d=>({...d, conceptosGasto:a}));
-                  LS.set("ventas_conceptosGasto", a);
-                }
-                sf("concepto", up);
-              }
-            } else sf("concepto", v);
-          }} style={{...iS, marginBottom:12}}>
-            {(form.tipo === "VENTA" ? data.conceptosVenta : data.conceptosGasto).map(c=><option key={c} value={c}>{c}</option>)}
-            <option value="__nuevo">＋ Nuevo concepto...</option>
-          </select>
-
-          <label style={lS}>Monto ($)</label>
-          <div style={{position:"relative"}}>
-            <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:T.textMid,fontWeight:700,fontSize:13}}>$</span>
-            <input type="number" min="0" step="0.01" value={form.monto} onChange={e=>sf("monto", e.target.value)} placeholder="0.00" style={{...iS, paddingLeft:24}}/>
-          </div>
-        </div>
-
-        {/* Caja (Opcional) */}
-        <div style={{marginBottom:18}}>
-          <label style={lS}>Caja reportada hoy (Opcional)</label>
-          <div style={{position:"relative"}}>
-            <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:T.textMid,fontWeight:700}}>$</span>
-            <input type="number" min="0" step="0.01" value={form.caja} onChange={e=>sf("caja",e.target.value)} placeholder="Solo si cierra caja hoy" style={{...iS,paddingLeft:26}}/>
-          </div>
-        </div>
-
-        <button onClick={handleSave} disabled={saving} style={{width:"100%",padding:"15px 0",borderRadius:14,border:"none",background:saving?`${T.primary}99`:T.primary,color:T.white,fontFamily:"inherit",fontWeight:800,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-          {saving?"Guardando...":<><Icon name="check" size={18} color={T.white}/> Guardar registro</>}
-        </button>
-      </Card>
-
-      <Card>
-        <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:12}}>Movimientos hoy</div>
-        {data.entries.filter(e=>e.fecha===today()).length===0
-          ?<div style={{color:T.textLight,fontSize:13,textAlign:"center",padding:"10px 0"}}>Sin movimientos hoy</div>
-          :data.entries.filter(e=>e.fecha===today()).reverse().map(e=>{const d=e.caja!=null?e.caja-(totalV(e)-totalG(e)):null;return <DayEntryCard key={e.id} entry={e} diff={d}/>;})
-        }
-      </Card>
-    </div>
+    <Card>
+      <div style={{marginBottom:12}}><label style={{fontSize:11,fontWeight:700}}>FECHA</label><input type="date" value={form.fecha} onChange={e=>sf("fecha",e.target.value)} style={iS}/></div>
+      <div style={{marginBottom:12}}><label style={{fontSize:11,fontWeight:700}}>SUCURSAL</label><select value={form.sucursal} onChange={e=>sf("sucursal",e.target.value)} style={iS}>{data.sucursales.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <button onClick={()=>sf("tipo","VENTA")} style={{flex:1,padding:12,borderRadius:10,background:form.tipo==="VENTA"?T.accent:T.border,color:form.tipo==="VENTA"?T.white:T.textMid,border:"none",fontWeight:700}}>VENTA</button>
+        <button onClick={()=>sf("tipo","GASTO")} style={{flex:1,padding:12,borderRadius:10,background:form.tipo==="GASTO"?T.expense:T.border,color:form.tipo==="GASTO"?T.white:T.textMid,border:"none",fontWeight:700}}>GASTO</button>
+      </div>
+      <div style={{marginBottom:12}}><label style={{fontSize:11,fontWeight:700}}>CONCEPTO</label><select value={form.concepto} onChange={e=>sf("concepto",e.target.value)} style={iS}>{(form.tipo==="VENTA"?data.conceptosVenta:data.conceptosGasto).map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+      <div style={{marginBottom:18}}><label style={{fontSize:11,fontWeight:700}}>MONTO ($)</label><input type="number" value={form.monto} onChange={e=>sf("monto",e.target.value)} placeholder="0.00" style={iS}/></div>
+      <button onClick={handleSave} style={{width:"100%",padding:15,borderRadius:12,background:T.primary,color:T.white,border:"none",fontWeight:800}}>Guardar Registro</button>
+    </Card>
   );
 };
 
-// ─── BALANCE ──────────────────────────────────────────────────────────────────
-const Balance = ({data}) => {
-  const [period,setPeriod]=useState("mes");
-  const [sucFilter,setSucFilter]=useState("__all");
+const Balance = ({data}) => <Card>Historial: {[...data.entries].reverse().map(e=><DayEntryCard key={e.id} entry={e}/>)}</Card>;
+const Backups = ({backup}) => <Card><button onClick={backup.saveToCloud} style={{width:"100%",padding:12,background:T.accent,color:white,border:"none",borderRadius:10,marginBottom:10}}>Guardar Nube</button><button onClick={backup.restoreFromCloud} style={{width:"100%",padding:12,background:T.card,border:`1px solid ${T.border}`,borderRadius:10}}>Restaurar</button></Card>;
 
-  const filtered=useMemo(()=>{
-    let base=filterPeriod(data.entries,period);
-    if(sucFilter!=="__all") base=base.filter(e=>e.sucursal===sucFilter);
-    return base;
-  },[data.entries,period,sucFilter]);
-
-  const faltantes=filtered.filter(e=>e.caja!=null&&Math.abs(e.caja-(totalV(e)-totalG(e)))>0.01);
-  const totalFaltante=faltantes.reduce((a,e)=>a+Math.abs(e.caja-(totalV(e)-totalG(e))),0);
-  const sorted=useMemo(()=>[...filtered].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[filtered]);
-
-  return (
-    <div style={{paddingBottom:12}}>
-      <PeriodToggle value={period} onChange={setPeriod}/>
-      <SucursalPicker value={sucFilter} onChange={setSucFilter} sucursales={data.sucursales} showAll/>
-
-      <Card style={{marginBottom:20,background:faltantes.length>0?"#FFFBF0":"#F0FDF4",borderColor:faltantes.length>0?T.warning:"#BBF7D0"}}>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:44,height:44,borderRadius:12,background:faltantes.length>0?T.warningLight:T.accentLight,display:"flex",alignItems:"center",justifyContent:"center",color:faltantes.length>0?T.warning:T.accent}}>
-            <Icon name={faltantes.length>0?"warning":"check"} size={22}/>
-          </div>
-          <div>
-            <div style={{fontSize:12,fontWeight:600,color:T.textMid}}>{faltantes.length>0?`${faltantes.length} diferencia(s) detectada(s)`:"Sin diferencias en este período"}</div>
-            {faltantes.length>0&&<div style={{fontSize:22,fontWeight:800,color:T.warning}}>−{fmt(totalFaltante)}</div>}
-          </div>
-        </div>
-      </Card>
-
-      <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:12}}>Detalle por día</div>
-      {sorted.length===0&&<div style={{color:T.textLight,fontSize:13,textAlign:"center",padding:"24px 0"}}>Sin datos para este período</div>}
-      {sorted.map(e=>{const d=e.caja!=null?e.caja-(totalV(e)-totalG(e)):null;return <DayEntryCard key={e.id} entry={e} diff={d}/>;
-      })}
-    </div>
-  );
-};
-
-// ─── BACKUPS ──────────────────────────────────────────────────────────────────
-const Backups = ({backup, data, setData, toast}) => {
-  const {status, lastSync, urlConfigurada, saveToCloud, restoreFromCloud} = backup;
-
-  const handleExport = () => {
-    const b = new Blob([JSON.stringify({entries:data.entries,sucursales:data.sucursales,conceptosVenta:data.conceptosVenta,conceptosGasto:data.conceptosGasto,exportedAt:new Date().toISOString()},null,2)],{type:"application/json"});
-    const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `ventas_backup_${today()}.json`; a.click();
-    toast("✓ Archivo descargado");
-  };
-  const handleImport = (e) => {
-    const f = e.target.files?.[0]; if (!f) return;
-    const r = new FileReader();
-    r.onload = (ev) => {
-      try {
-        const p = JSON.parse(ev.target.result);
-        if (p.entries) {
-          setData(d => ({...d, entries:p.entries, sucursales:p.sucursales||d.sucursales, conceptosVenta:p.conceptosVenta||d.conceptosVenta, conceptosGasto:p.conceptosGasto||d.conceptosGasto}));
-          LS.set("ventas_entries", p.entries); LS.set("ventas_sucursales", p.sucursales);
-          LS.set("ventas_conceptosVenta", p.conceptosVenta); LS.set("ventas_conceptosGasto", p.conceptosGasto);
-          toast("✓ Datos importados");
-        }
-      } catch { toast("Error al leer el archivo"); }
-    };
-    r.readAsText(f);
-  };
-  const handleClear = () => {
-    if (window.confirm("¿Eliminar TODOS los registros? Esta acción no se puede deshacer.")) {
-      setData(d => ({...d, entries:[]})); LS.set("ventas_entries", []); toast("Datos eliminados");
-    }
-  };
-
-  const sC = {idle:T.textLight, syncing:T.warning, ok:"#16A34A", error:T.expense};
-  const sL = {idle:"Sin sincronizar", syncing:"Guardando...", ok:"Sincronizado", error:"Error"};
-
-  return (
-    <div style={{paddingBottom:12}}>
-      {/* Estado nube */}
-      <Card style={{marginBottom:14}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:40,height:40,borderRadius:12,background:T.accentLight,display:"flex",alignItems:"center",justifyContent:"center",color:T.accent}}>
-              <Icon name="cloud" size={20}/>
-            </div>
-            <div>
-              <div style={{fontWeight:700,fontSize:14,color:T.text}}>Respaldo en la nube</div>
-              <div style={{fontSize:11,color:sC[status],fontWeight:600}}>{sL[status]}</div>
-            </div>
-          </div>
-          <div style={{width:10,height:10,borderRadius:99,background:sC[status]}}/>
-        </div>
-        {lastSync && <div style={{fontSize:11,color:T.textLight,marginBottom:14}}>Último respaldo: {new Date(lastSync).toLocaleString("es-SV")}</div>}
-
-        {!urlConfigurada ? (
-          <div style={{padding:"12px 14px",borderRadius:10,background:T.warningLight,border:`1px solid ${T.warning}`,fontSize:12,color:T.warning,fontWeight:600,lineHeight:1.6}}>
-            ⚠ URL del script no configurada.<br/>
-            <span style={{fontWeight:400,color:T.textMid}}>Edita el archivo <code>ventas-app.jsx</code> y reemplaza <code>TU_URL_AQUI</code> con la URL de tu Google Apps Script.</span>
-          </div>
-        ) : (
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <button onClick={saveToCloud} style={{padding:"12px 0",borderRadius:12,border:"none",background:T.accent,color:T.white,fontFamily:"inherit",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-              <Icon name="cloudUp" size={16} color={T.white}/> Guardar
-            </button>
-            <button onClick={restoreFromCloud} style={{padding:"12px 0",borderRadius:12,border:`1.5px solid ${T.border}`,background:T.card,color:T.primaryMid,fontFamily:"inherit",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-              <Icon name="cloudDown" size={16}/> Restaurar
-            </button>
-          </div>
-        )}
-      </Card>
-
-      {/* Manual */}
-      <Card style={{marginBottom:14}}>
-        <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:12}}>Respaldo manual (archivo)</div>
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <button onClick={handleExport} style={{padding:"12px 16px",borderRadius:12,border:`1.5px solid ${T.border}`,background:T.card,color:T.text,fontFamily:"inherit",fontWeight:600,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:10}}>
-            <Icon name="cloudDown" size={18} color={T.primaryMid}/>
-            <div><div style={{fontWeight:700}}>Descargar respaldo (JSON)</div><div style={{fontSize:11,color:T.textLight}}>{data.entries.length} registros guardados</div></div>
-          </button>
-          <label style={{padding:"12px 16px",borderRadius:12,border:`1.5px solid ${T.border}`,background:T.card,cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
-            <Icon name="cloudUp" size={18} color={T.primaryMid}/>
-            <div><div style={{fontWeight:700,fontSize:13,color:T.text}}>Importar respaldo</div><div style={{fontSize:11,color:T.textLight}}>Seleccionar archivo JSON</div></div>
-            <input type="file" accept=".json" onChange={handleImport} style={{display:"none"}}/>
-          </label>
-        </div>
-      </Card>
-
-      {/* Peligro */}
-      <Card style={{borderColor:T.expenseLight}}>
-        <div style={{fontWeight:700,fontSize:14,color:T.expense,marginBottom:12}}>Zona peligrosa</div>
-        <button onClick={handleClear} style={{padding:"12px 16px",borderRadius:12,border:`1.5px solid ${T.expense}`,background:T.expenseLight,color:T.expense,fontFamily:"inherit",fontWeight:700,fontSize:13,cursor:"pointer",width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-          <Icon name="trash" size={16} color={T.expense}/> Eliminar todos los datos
-        </button>
-      </Card>
-    </div>
-  );
-};
-
-// ─── TABS ─────────────────────────────────────────────────────────────────────
-const TABS=[
-  {id:"dashboard",label:"Inicio",icon:"dashboard",title:"Panel general"},
-  {id:"sucursal",label:"Sucursal",icon:"store",title:"Por sucursal"},
-  {id:"registro",label:"Registrar",icon:"plus",title:"Nueva entrada"},
-  {id:"balance",label:"Balance",icon:"wallet",title:"Balances y faltantes"},
-];
-const ALL_SECTIONS=[
-  ...TABS,
-  {id:"respaldo",label:"Respaldo",icon:"cloud",title:"Respaldo"},
-];
-
-// ─── APP ──────────────────────────────────────────────────────────────────────
+// ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
 export default function App() {
-  const [tab,setTab]=useState("dashboard");
-  const [sidebar,setSidebar]=sidebarState = useState(false);
-  const [toast,setToast]=useState("");
-  const showToast=(m)=>setToast(m);
-
-  const [data,setData]=useState(()=>({
-    entries: LS.get("ventas_entries",null)??genSeedData(),
-    sucursales: LS.get("ventas_sucursales",null)??SUCURSALES_DEFAULT,
-    conceptosVenta: LS.get("ventas_conceptosVenta",null)??CONCEPTOS_VENTA_DEFAULT,
-    conceptosGasto: LS.get("ventas_conceptosGasto",null)??CONCEPTOS_GASTO_DEFAULT,
+  const [tab, setTab] = useState("dashboard");
+  const [sidebar, setSidebar] = useState(false);
+  const [toast, setToast] = useState("");
+  
+  const [data, setData] = useState(() => ({
+    entries: LS.get("ventas_entries", []),
+    sucursales: LS.get("ventas_sucursales", SUCURSALES_DEFAULT),
+    conceptosVenta: LS.get("ventas_conceptosVenta", CONCEPTOS_VENTA_DEFAULT),
+    conceptosGasto: LS.get("ventas_conceptosGasto", CONCEPTOS_GASTO_DEFAULT),
   }));
 
-  useEffect(()=>{LS.set("ventas_entries",data.entries);},[data.entries]);
+  const backup = useBackup(data, setData, m => setToast(m));
 
-  const backup = useBackup(data, setData, showToast);
-  const title=ALL_SECTIONS.find(t=>t.id===tab)?.title||"";
+  const TABS = [
+    {id:"dashboard", label:"Inicio", icon:"dashboard"},
+    {id:"sucursal", label:"Sucursal", icon:"store"},
+    {id:"registro", label:"Registrar", icon:"plus"},
+    {id:"balance", label:"Balance", icon:"wallet"}
+  ];
 
-  const views={
-    dashboard:<Dashboard data={data}/>,
-    sucursal:<SucursalDetail data={data}/>,
-    registro:<Registro data={data} setData={setData} toast={showToast}/>,
-    balance:<Balance data={data}/>,
-    respaldo:<Backups backup={backup} data={data} setData={setData} toast={showToast}/>,
+  const views = {
+    dashboard: <Dashboard data={data}/>,
+    sucursal: <SucursalDetail data={data}/>,
+    registro: <Registro data={data} setData={setData} toast={m=>setToast(m)}/>,
+    balance: <Balance data={data}/>,
+    respaldo: <Backups backup={backup}/>
   };
 
   return (
-    <div style={{fontFamily:"'DM Sans','Segoe UI',sans-serif",background:T.bg,minHeight:"100dvh",maxWidth:480,margin:"0 auto",position:"relative"}}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap');*{box-sizing:border-box}input:focus,select:focus{border-color:${T.accent}!important;outline:none}input[type=date]::-webkit-calendar-picker-indicator{opacity:.5}select{-webkit-appearance:none}`}</style>
-
-      <header style={{position:"sticky",top:0,zIndex:100,background:`${T.bg}EE`,backdropFilter:"blur(12px)",padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${T.border}`}}>
-        <button onClick={()=>setSidebar(true)} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.text}}><Icon name="menu" size={22}/></button>
-        <div style={{fontWeight:900,fontSize:20,color:T.primary,letterSpacing:"-0.5px"}}>Ventas</div>
-        <div style={{width:34,height:34,borderRadius:10,background:T.primary,display:"flex",alignItems:"center",justifyContent:"center",color:T.white,fontSize:11,fontWeight:800}}>
-          {backup.status==="syncing" ? "↻" : backup.status==="ok" ? "✓" : <Icon name="cloud" size={16} color={T.white}/>}
-        </div>
+    <div style={{fontFamily:"'DM Sans',sans-serif",background:T.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative"}}>
+      <header style={{position:"sticky",top:0,zIndex:100,background:`${T.bg}EE`,padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${T.border}`}}>
+        <button onClick={()=>setSidebar(true)} style={{background:"none",border:"none",cursor:"pointer"}}><Icon name="menu"/></button>
+        <div style={{fontWeight:900,fontSize:20}}>Ventas</div>
+        <Icon name="cloud" size={20} color={backup.status==="ok"?T.accent:T.textLight}/>
       </header>
 
-      <div style={{padding:"14px 20px 4px"}}>
-        <div style={{fontSize:22,fontWeight:900,color:T.text,letterSpacing:"-0.5px"}}>{title}</div>
-      </div>
+      <main style={{padding:20}}>{views[tab]}</main>
 
-      <main style={{padding:"10px 20px 100px"}}>{views[tab]}</main>
-
-      <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:`${T.card}F8`,backdropFilter:"blur(16px)",borderTop:`1px solid ${T.border}`,display:"flex",padding:"10px 8px 20px",gap:4,zIndex:50}}>
-        {TABS.map(t=>{
-          const active=tab===t.id;
-          return (
-            <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:active?T.primary:"none",border:"none",cursor:"pointer",padding:"8px 4px",borderRadius:12}}>
-              <div style={{color:active?T.white:T.textLight}}>
-                {t.id==="registro"
-                  ?<div style={{width:30,height:30,borderRadius:9,background:active?T.accent:T.accentLight,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="plus" size={18} color={active?T.white:T.accent}/></div>
-                  :<Icon name={t.icon} size={20} color={active?T.white:T.textLight}/>
-                }
-              </div>
-              <span style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:active?T.white:T.textLight}}>{t.label}</span>
-            </button>
-          );
-        })}
+      <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:T.card,display:"flex",padding:"10px 0 20px",borderTop:`1px solid ${T.border}`}}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",background:"none",border:"none"}}>
+            <Icon name={t.icon} color={tab===t.id?T.accent:T.textLight}/>
+            <span style={{fontSize:10,color:tab===t.id?T.accent:T.textLight}}>{t.label}</span>
+          </button>
+        ))}
       </nav>
 
-      {sidebar&&(
+      {sidebar && (
         <>
           <div onClick={()=>setSidebar(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",zIndex:200}}/>
-          <aside style={{position:"fixed",top:0,left:0,bottom:0,width:280,zIndex:201,background:T.primary,display:"flex",flexDirection:"column"}}>
-            <div style={{padding:"52px 24px 20px",borderBottom:"1px solid rgba(255,255,255,.1)",marginBottom:8}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div style={{fontSize:26,fontWeight:900,color:T.white,letterSpacing:"-0.5px"}}>Ventas</div>
-                <button onClick={()=>setSidebar(false)} style={{background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,.6)",padding:4}}><Icon name="close" size={22}/></button>
-              </div>
-              <div style={{fontSize:12,color:"rgba(255,255,255,.4)",marginTop:4}}>{data.entries.length} registros · {data.sucursales.length} sucursales</div>
-            </div>
-            {ALL_SECTIONS.map(t=>{
-              const active=tab===t.id;
-              return (
-                <button key={t.id} onClick={()=>{setTab(t.id);setSidebar(false);}} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 24px",background:active?"rgba(255,255,255,.12)":"none",border:"none",cursor:"pointer",borderLeft:`3px solid ${active?T.accent:"transparent"}`,color:active?T.white:"rgba(255,255,255,.6)"}}>
-                  <Icon name={t.icon} size={20} color={active?T.white:"rgba(255,255,255,.6)"}/>
-                  <span style={{fontWeight:700,fontSize:14}}>{t.title}</span>
-                </button>
-              );
-            })}
-            <div style={{marginTop:"auto",padding:"16px 24px",borderTop:"1px solid rgba(255,255,255,.1)"}}>
-              <div style={{fontSize:11,color:"rgba(255,255,255,.35)",fontWeight:600}}>
-                {backup.urlConfigurada ? (backup.status==="ok" ? "☁ Nube activa" : "☁ Nube configurada") : "⚪ Nube no configurada"}<br/>
-                {backup.lastSync ? `Último: ${new Date(backup.lastSync).toLocaleDateString("es-SV")}` : "Sin respaldo aún"}
-              </div>
-            </div>
+          <aside style={{position:"fixed",top:0,left:0,bottom:0,width:280,background:T.primary,zIndex:201,padding:20,color:T.white}}>
+             <div style={{display:"flex",justifyContent:"space-between",marginBottom:30}}><h2>Ventas</h2><button onClick={()=>setSidebar(false)} style={{background:"none",border:"none",color:T.white}}>X</button></div>
+             <button onClick={()=>{setTab("respaldo");setSidebar(false)}} style={{width:"100%",textAlign:"left",padding:12,background:"none",border:"none",color:T.white,fontWeight:700}}>RESPALDO NUBE</button>
           </aside>
         </>
       )}
-
       <Toast msg={toast} onClose={()=>setToast("")}/>
     </div>
   );
 }
 
-// Exponer App globalmente para que index.html pueda montarla
 window.App = App;
