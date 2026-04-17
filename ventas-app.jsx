@@ -253,10 +253,11 @@ const DayGroupCard = ({group,onEditRecord,onDeleteRecord}) => {
             <div style={{marginTop:10}}>
               <div style={{fontSize:11,fontWeight:700,color:T.accent,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Ventas</div>
               {group.ventas.map((v,i)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>
+                <div key={i} style={{display:"flex",alignItems:"center",fontSize:13,padding:"5px 0",borderBottom:`1px solid ${T.border}`,gap:6}}>
+                  {canEdit&&<button onClick={()=>onEditRecord(v)} style={{background:T.accentLight,border:"none",cursor:"pointer",padding:"4px 6px",borderRadius:6,color:T.accent,flexShrink:0,display:"flex",alignItems:"center"}}><Icon name="edit" size={13}/></button>}
                   <span style={{color:T.textMid,flex:1}}>{v.concepto}</span>
-                  <span style={{fontWeight:600,marginRight:canEdit?6:0}}>{fmt(v.monto)}</span>
-                  {canEdit&&<><button onClick={()=>onEditRecord(v)} style={{background:"none",border:"none",cursor:"pointer",padding:2,color:T.textLight}}><Icon name="edit" size={14}/></button><button onClick={()=>onDeleteRecord(v.id)} style={{background:"none",border:"none",cursor:"pointer",padding:2,color:T.expense}}><Icon name="trash" size={14}/></button></>}
+                  <span style={{fontWeight:600}}>{fmt(v.monto)}</span>
+                  {canEdit&&<button onClick={()=>onDeleteRecord(v.id)} style={{background:T.expenseLight,border:"none",cursor:"pointer",padding:"4px 6px",borderRadius:6,color:T.expense,flexShrink:0,display:"flex",alignItems:"center"}}><Icon name="trash" size={13}/></button>}
                 </div>
               ))}
               <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",fontWeight:700,color:T.accent}}><span>Total ventas</span><span>{fmt(tv)}</span></div>
@@ -266,10 +267,11 @@ const DayGroupCard = ({group,onEditRecord,onDeleteRecord}) => {
             <div style={{marginTop:6}}>
               <div style={{fontSize:11,fontWeight:700,color:T.expense,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Gastos</div>
               {group.gastos.map((g,i)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>
+                <div key={i} style={{display:"flex",alignItems:"center",fontSize:13,padding:"5px 0",borderBottom:`1px solid ${T.border}`,gap:6}}>
+                  {canEdit&&<button onClick={()=>onEditRecord(g)} style={{background:T.accentLight,border:"none",cursor:"pointer",padding:"4px 6px",borderRadius:6,color:T.accent,flexShrink:0,display:"flex",alignItems:"center"}}><Icon name="edit" size={13}/></button>}
                   <span style={{color:T.textMid,flex:1}}>{g.concepto}</span>
-                  <span style={{fontWeight:600,color:T.expense,marginRight:canEdit?6:0}}>{fmt(g.monto)}</span>
-                  {canEdit&&<><button onClick={()=>onEditRecord(g)} style={{background:"none",border:"none",cursor:"pointer",padding:2,color:T.textLight}}><Icon name="edit" size={14}/></button><button onClick={()=>onDeleteRecord(g.id)} style={{background:"none",border:"none",cursor:"pointer",padding:2,color:T.expense}}><Icon name="trash" size={14}/></button></>}
+                  <span style={{fontWeight:600,color:T.expense}}>{fmt(g.monto)}</span>
+                  {canEdit&&<button onClick={()=>onDeleteRecord(g.id)} style={{background:T.expenseLight,border:"none",cursor:"pointer",padding:"4px 6px",borderRadius:6,color:T.expense,flexShrink:0,display:"flex",alignItems:"center"}}><Icon name="trash" size={13}/></button>}
                 </div>
               ))}
               <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",fontWeight:700,color:T.expense}}><span>Total gastos</span><span>{fmt(tg)}</span></div>
@@ -490,11 +492,11 @@ const Registro = ({data,setData,toast}) => {
         <div style={{background:`${T.accentLight}99`,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
           <div style={{fontSize:11,fontWeight:700,color:T.accent,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8}}>Ventas de hoy — {suc}</div>
           {dayVentas.map((v,i)=>(
-            <div key={v.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,padding:"4px 0",borderBottom:i<dayVentas.length-1?`1px solid ${T.border}`:undefined}}>
+            <div key={v.id} style={{display:"flex",alignItems:"center",fontSize:13,padding:"5px 0",borderBottom:i<dayVentas.length-1?`1px solid ${T.border}`:undefined,gap:6}}>
+              <button onClick={()=>setEditRec(v)} style={{background:T.accentLight,border:"none",cursor:"pointer",padding:"4px 6px",borderRadius:6,color:T.accent,flexShrink:0,display:"flex",alignItems:"center"}}><Icon name="edit" size={13}/></button>
               <span style={{color:T.primaryMid,flex:1}}>{v.concepto}</span>
-              <span style={{fontWeight:700,marginRight:8}}>{fmt(v.monto)}</span>
-              <button onClick={()=>setEditRec(v)} style={{background:"none",border:"none",cursor:"pointer",padding:2,color:T.textLight}}><Icon name="edit" size={14}/></button>
-              <button onClick={()=>handleDelete(v.id)} style={{background:"none",border:"none",cursor:"pointer",padding:2,color:T.expense}}><Icon name="trash" size={14}/></button>
+              <span style={{fontWeight:700}}>{fmt(v.monto)}</span>
+              <button onClick={()=>handleDelete(v.id)} style={{background:T.expenseLight,border:"none",cursor:"pointer",padding:"4px 6px",borderRadius:6,color:T.expense,flexShrink:0,display:"flex",alignItems:"center"}}><Icon name="trash" size={13}/></button>
             </div>
           ))}
           <div style={{fontSize:13,fontWeight:700,color:T.accent,textAlign:"right",marginTop:8}}>Total: {fmt(dayTV)}</div>
@@ -517,11 +519,11 @@ const Registro = ({data,setData,toast}) => {
         <div style={{background:`${T.expenseLight}99`,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
           <div style={{fontSize:11,fontWeight:700,color:T.expense,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8}}>Gastos de hoy — {suc}</div>
           {dayGastos.map((g,i)=>(
-            <div key={g.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,padding:"4px 0",borderBottom:i<dayGastos.length-1?`1px solid ${T.border}`:undefined}}>
+            <div key={g.id} style={{display:"flex",alignItems:"center",fontSize:13,padding:"5px 0",borderBottom:i<dayGastos.length-1?`1px solid ${T.border}`:undefined,gap:6}}>
+              <button onClick={()=>setEditRec(g)} style={{background:T.accentLight,border:"none",cursor:"pointer",padding:"4px 6px",borderRadius:6,color:T.accent,flexShrink:0,display:"flex",alignItems:"center"}}><Icon name="edit" size={13}/></button>
               <span style={{color:"#7f1d1d",flex:1}}>{g.concepto}</span>
-              <span style={{fontWeight:700,color:T.expense,marginRight:8}}>{fmt(g.monto)}</span>
-              <button onClick={()=>setEditRec(g)} style={{background:"none",border:"none",cursor:"pointer",padding:2,color:T.textLight}}><Icon name="edit" size={14}/></button>
-              <button onClick={()=>handleDelete(g.id)} style={{background:"none",border:"none",cursor:"pointer",padding:2,color:T.expense}}><Icon name="trash" size={14}/></button>
+              <span style={{fontWeight:700,color:T.expense}}>{fmt(g.monto)}</span>
+              <button onClick={()=>handleDelete(g.id)} style={{background:T.expenseLight,border:"none",cursor:"pointer",padding:"4px 6px",borderRadius:6,color:T.expense,flexShrink:0,display:"flex",alignItems:"center"}}><Icon name="trash" size={13}/></button>
             </div>
           ))}
           <div style={{fontSize:13,fontWeight:700,color:T.expense,textAlign:"right",marginTop:8}}>Total: {fmt(dayTG)}</div>
