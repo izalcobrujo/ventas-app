@@ -1,52 +1,62 @@
-const CACHE_NAME = 'ventas-app-v2'; // cambia esto en cada deploy si quieres forzar actualización
+const CACHE_NAME = 'ventas-app-v3'; // cambia en cada deploy
 
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/ventas-app.jsx',
-  '/manifest.json',
-  '/icon-192.png'
+  './',
+  './index.html',
+  './manifest.json',
+  './icon-192.png'
 ];
 
-// Instalar
+// INSTALAR (sin romper si algo falla)
 self.addEventListener('install', event => {
   self.skipWaiting();
+
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(urlsToCache))
+    caches.open(CACHE_NAME).then(async cache => {
+      for (const url of urlsToCache) {
+        try {
+          const response = await fetch(url, { cache: 'no-store' });
+          if (response.ok) {
+            await cache.put(url, response.clone());
+          }
+        } catch (err) {
+          console.warn('Error cacheando:', url);
+        }
+      }
+    })
   );
 });
 
-// Activar y limpiar cachés viejos
+// ACTIVAR (limpia versiones viejas)
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys => {
-      return Promise.all(
+    caches.keys().then(keys =>
+      Promise.all(
         keys.map(key => {
           if (key !== CACHE_NAME) {
             return caches.delete(key);
           }
         })
-      );
-    })
+      )
+    )
   );
+
   self.clients.claim();
 });
 
-// Estrategia: network first (clave para que NO se quede vieja)
+// FETCH (network first, pero más seguro)
 self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
+
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        // opcional: actualizar cache
         const resClone = response.clone();
         caches.open(CACHE_NAME).then(cache => {
           cache.put(event.request, resClone);
         });
         return response;
       })
-      .catch(() => {
-        return caches.match(event.request);
-      })
+      .catch(() => caches.match(event.request))
   );
 });
