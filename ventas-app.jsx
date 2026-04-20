@@ -16,8 +16,8 @@ const T = {
 };
 
 const SUCURSALES_DEFAULT = ["GARAN 1","GARAN 2","GARAN 7"];
-const CV_DEFAULT = ["DESAYUNO","ALMUERZO","REFRIGERIO MAÑANA","REFRIGERIO TARDE"];
-const CG_DEFAULT = ["TORTILLAS","PAGOS","OTROS"];
+const CV_DEFAULT = ["DESAYUNO","ALMUERZO","REFRIGERIO"];
+const CG_DEFAULT = ["SODAS", "POLLO", "PAN", "TORTILLAS","PAGOS","OTROS"];
 
 const fmt = (n) => `$${Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const today = () => new Date().toISOString().split("T")[0];
